@@ -12,7 +12,10 @@ const CACHE_DIR = path.join(process.cwd(), 'data')
 const CACHE_FILE = path.join(CACHE_DIR, 'graphicaudio_catalog.json')
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000
 
-const CATALOG_URL = 'https://github.com/binyaminyblatt/graphicaudio_scraper/raw/refs/heads/main/results.json'
+const CATALOG_URLS = [ 
+  'https://github.com/binyaminyblatt/graphicaudio_scraper/raw/refs/heads/main/results.json',
+  'https://raw.githubusercontent.com/binyaminyblatt/graphicaudio_scraper/refs/heads/main/wayback_results.json'
+]
 
 interface GraphicAudioBook {
   link?: string
@@ -64,23 +67,31 @@ export default class GraphicAudioProvider extends BaseProvider {
     }
 
     if (needsDownload) {
-      const response = await httpClient.get(CATALOG_URL, {
-        headers: { Accept: 'application/json' },
-        responseType: 'text'
-      })
+      
+      this.catalog = []
 
-      if (response.status !== 200) {
-        if (fs.existsSync(CACHE_FILE)) {
-          const cachedData = fs.readFileSync(CACHE_FILE, 'utf-8')
-          this.catalog = this.parseAndValidateCatalog(cachedData)
-          this.catalogLoadedAt = now
-          return this.catalog
+      for (const url of CATALOG_URLS) {
+      
+        const response = await httpClient.get(url, {
+          headers: { Accept: 'application/json' },
+          responseType: 'text'
+        })
+
+        if (response.status !== 200) {
+          if (fs.existsSync(CACHE_FILE)) {
+            const cachedData = fs.readFileSync(CACHE_FILE, 'utf-8')
+            this.catalog = this.parseAndValidateCatalog(cachedData)
+            this.catalogLoadedAt = now
+            return this.catalog
+          }
+          throw new Error(`Failed to download Graphic Audio catalog: ${response.status}`)
         }
-        throw new Error(`Failed to download Graphic Audio catalog: ${response.status}`)
+
+        const rawData = typeof response.data === 'string' ? response.data : JSON.stringify(response.data)
+        this.catalog.push(...this.parseAndValidateCatalog(rawData))
+      
       }
 
-      const rawData = typeof response.data === 'string' ? response.data : JSON.stringify(response.data)
-      this.catalog = this.parseAndValidateCatalog(rawData)
       fs.writeFileSync(CACHE_FILE, JSON.stringify(this.catalog), 'utf-8')
       this.catalogLoadedAt = now
       return this.catalog
