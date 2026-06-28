@@ -129,7 +129,7 @@
           "zul"
         ]
       },
-      "description": "Language of the audiobook searched for. If not specified, defaults to all."
+      "description": "Language of the audiobook searched for. If not specified, defaults to all (search in all languages)."
     }
   ],
   "returnedFields": ["title", "author", "cover"],
