@@ -132,6 +132,6 @@
       "description": "Language of the audiobook searched for. If not specified, defaults to all (search in all languages)."
     }
   ],
-  "returnedFields": ["title", "author", "cover"],
+  "returnedFields": ["title", "subtitle", "author", "narrator", "publisher", "publishedYear", "description", "cover", "isbn", "bookId", "genres", "series", "language", "duration", "poweredBy"],
   "comments": ["Optional notes about the provider"]
 }
