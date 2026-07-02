@@ -175,7 +175,11 @@ export default class LibroFMProvider extends BaseProvider {
     return narrators
   }
 
-  private extractDuration($: cheerio.CheerioAPI, ld: Partial<JsonLdAudiobook>, useJsonLd?: boolean): number | undefined {
+  private extractDuration(
+    $: cheerio.CheerioAPI,
+    ld: Partial<JsonLdAudiobook>,
+    useJsonLd?: boolean
+  ): number | undefined {
     let duration: number | undefined
     if (useJsonLd && ld.duration) {
       // Parse "PT12H27M40S" format
@@ -214,27 +218,27 @@ export default class LibroFMProvider extends BaseProvider {
   }
 
   private extractCoverUrl($: cheerio.CheerioAPI, ld: Partial<JsonLdAudiobook>, useJsonLd?: boolean): string | null {
-    let coverUrl: string | undefined;
-    
+    let coverUrl: string | undefined
+
     if (useJsonLd && ld.image) {
       if (typeof ld.image === 'string') {
-        coverUrl = ld.image;
+        coverUrl = ld.image
       } else if ('contentUrl' in ld.image) {
-        coverUrl = (ld.image as JsonLdImageObject).contentUrl;
+        coverUrl = (ld.image as JsonLdImageObject).contentUrl
       }
     }
 
     if (!coverUrl) {
-      coverUrl = $('img.book-cover').attr('src') || '';
+      coverUrl = $('img.book-cover').attr('src') || ''
     }
 
     if (coverUrl.startsWith('//')) {
-      coverUrl = `https:${coverUrl}`;
+      coverUrl = `https:${coverUrl}`
     } else if (coverUrl && !coverUrl.startsWith('http')) {
-      coverUrl = `https://libro.fm${coverUrl}`;
+      coverUrl = `https://libro.fm${coverUrl}`
     }
-    
-    return coverUrl || null;
+
+    return coverUrl || null
   }
 
   private extractSeriesMetadata($: cheerio.CheerioAPI): SeriesMetadata[] | null {
