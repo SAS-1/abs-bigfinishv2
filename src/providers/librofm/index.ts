@@ -5,6 +5,7 @@ import { httpClient } from '../../utils/httpClient'
 import * as cheerio from 'cheerio'
 import fs from 'fs'
 import path from 'path'
+import { JsonLdAudiobook, JsonLdImageObject } from './types'
 
 const configPath = path.join(__dirname, 'config.json')
 const config: ProviderConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
@@ -54,22 +55,22 @@ export default class LibroFMProvider extends BaseProvider {
     const $ = cheerio.load(bookRes.data)
 
     const ldJsonRaw = $('script[type="application/ld+json"]').first().html() || ''
-    let ld: any = {}
-    let use_jsonld = true
+    let ld: Partial<JsonLdAudiobook> = {}
+    let useJsonLd = true
     try {
-      ld = JSON.parse(ldJsonRaw)
+      ld = JSON.parse(ldJsonRaw) as JsonLdAudiobook
     } catch {
       // JSON-LD malformed or missing — fallback to HTML parsing instead
-      use_jsonld = false
+      useJsonLd = false
     }
 
     const title = ld.name || $('h1.audiobook-title').text().trim()
     const subtitle = $('div.audiobook-title__subtitle').text().trim() || undefined
-    const authors = this.extractAuthors($, ld, use_jsonld)
-    const narrators = this.extractNarrators($, ld, use_jsonld)
+    const authors = this.extractAuthors($, ld, useJsonLd)
+    const narrators = this.extractNarrators($, ld, useJsonLd)
     const publisher = ld.publisher || $('span[itemprop="publisher"]').text().trim() || undefined
-    const publishedYear = this.extractPublishedYear($, ld, use_jsonld)
-    const description = this.extractDescription($, ld, use_jsonld)
+    const publishedYear = this.extractPublishedYear($, ld, useJsonLd)
+    const description = this.extractDescription($, ld, useJsonLd)
     const coverUrl = this.extractCoverUrl($, ld) || undefined
     const isbn = ld.isbn || $('span[itemprop="isbn"]').text().trim() || undefined
     const genres = $('div.audiobook-genres a')
@@ -78,8 +79,7 @@ export default class LibroFMProvider extends BaseProvider {
       .filter((g) => g.length > 0)
     const seriesMetadata = this.extractSeriesMetadata($)
     const language = ld.inLanguage || $('span[itemprop="inLanguage"]').text().trim() || undefined
-    const duration = this.extractDuration($, ld, use_jsonld)
-    const edition = this.extractEdition($, ld, use_jsonld)
+    const duration = this.extractDuration($, ld, useJsonLd)
 
     return normalizeBookMetadata({
       title,
@@ -96,14 +96,17 @@ export default class LibroFMProvider extends BaseProvider {
       series: seriesMetadata,
       language,
       duration,
-      poweredBy: 'Libro.fm',
-      edition
+      poweredBy: 'Libro.fm'
     })
   }
 
-  private extractDescription($: cheerio.CheerioAPI, ld: any, use_jsonld?: boolean): string | undefined {
+  private extractDescription(
+    $: cheerio.CheerioAPI,
+    ld: Partial<JsonLdAudiobook>,
+    useJsonLd?: boolean
+  ): string | undefined {
     let description: string | undefined
-    if (use_jsonld && ld.description) {
+    if (useJsonLd && ld.description) {
       description = ld.description.trim()
     }
     if (!description) {
@@ -121,11 +124,15 @@ export default class LibroFMProvider extends BaseProvider {
     return description
   }
 
-  private extractAuthors($: cheerio.CheerioAPI, ld: any, use_jsonld?: boolean): string[] {
+  private extractAuthors($: cheerio.CheerioAPI, ld: Partial<JsonLdAudiobook>, useJsonLd?: boolean): string[] {
     let authors: string[] = []
-    if (use_jsonld && ld.author) {
+    if (useJsonLd && ld.author) {
       if (Array.isArray(ld.author)) {
-        authors = ld.author.map((a: any) => a.name).filter(Boolean)
+        authors = ld.author
+          .map((a) => (typeof a === 'string' ? a : a?.name))
+          .filter((name): name is string => typeof name === 'string' && name.length > 0)
+      } else if (typeof ld.author === 'string') {
+        authors = [ld.author]
       } else if (ld.author?.name) {
         authors = [ld.author.name]
       }
@@ -139,11 +146,15 @@ export default class LibroFMProvider extends BaseProvider {
     return authors
   }
 
-  private extractNarrators($: cheerio.CheerioAPI, ld: any, use_jsonld?: boolean): string[] {
+  private extractNarrators($: cheerio.CheerioAPI, ld: Partial<JsonLdAudiobook>, useJsonLd?: boolean): string[] {
     let narrators: string[] = []
-    if (use_jsonld && ld.readBy) {
+    if (useJsonLd && ld.readBy) {
       if (Array.isArray(ld.readBy)) {
-        narrators = ld.readBy.map((n: any) => n.name).filter(Boolean)
+        narrators = ld.readBy
+          .map((n) => (typeof n === 'string' ? n : n?.name))
+          .filter((name): name is string => typeof name === 'string' && name.length > 0)
+      } else if (typeof ld.readBy === 'string') {
+        narrators = [ld.readBy]
       } else if (ld.readBy?.name) {
         narrators = [ld.readBy.name]
       }
@@ -164,9 +175,9 @@ export default class LibroFMProvider extends BaseProvider {
     return narrators
   }
 
-  private extractDuration($: cheerio.CheerioAPI, ld: any, use_jsonld?: boolean): number | undefined {
+  private extractDuration($: cheerio.CheerioAPI, ld: Partial<JsonLdAudiobook>, useJsonLd?: boolean): number | undefined {
     let duration: number | undefined
-    if (use_jsonld && ld.duration) {
+    if (useJsonLd && ld.duration) {
       // Parse "PT12H27M40S" format
       const isoMatch = ld.duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/)
       if (isoMatch) {
@@ -186,9 +197,13 @@ export default class LibroFMProvider extends BaseProvider {
     return duration
   }
 
-  private extractPublishedYear($: cheerio.CheerioAPI, ld: any, use_jsonld?: boolean): string | undefined {
+  private extractPublishedYear(
+    $: cheerio.CheerioAPI,
+    ld: Partial<JsonLdAudiobook>,
+    useJsonLd?: boolean
+  ): string | undefined {
     let publishedYear: string | undefined
-    if (use_jsonld && ld.datePublished) {
+    if (useJsonLd && ld.datePublished) {
       publishedYear = ld.datePublished.match(/\d{4}/)?.[0] || ld.datePublished
     }
     if (!publishedYear) {
@@ -198,27 +213,28 @@ export default class LibroFMProvider extends BaseProvider {
     return publishedYear
   }
 
-  private extractEdition($: cheerio.CheerioAPI, ld: any, use_jsonld?: boolean): string | undefined {
-    let edition: string | undefined
-
-    if (!use_jsonld) {
-      edition = $('div.cell p:has(strong:contains("Edition"))').find('span').text().trim()
-    } else if (ld.abridged === 'false') {
-      edition = 'Unabridged'
-    } else if (ld.abridged === 'true') {
-      edition = 'Abridged'
+  private extractCoverUrl($: cheerio.CheerioAPI, ld: Partial<JsonLdAudiobook>, useJsonLd?: boolean): string | null {
+    let coverUrl: string | undefined;
+    
+    if (useJsonLd && ld.image) {
+      if (typeof ld.image === 'string') {
+        coverUrl = ld.image;
+      } else if ('contentUrl' in ld.image) {
+        coverUrl = (ld.image as JsonLdImageObject).contentUrl;
+      }
     }
-    return edition
-  }
 
-  private extractCoverUrl($: cheerio.CheerioAPI, ld: any): string | null {
-    let coverUrl = ld.image || $('img.book-cover').attr('src') || ''
+    if (!coverUrl) {
+      coverUrl = $('img.book-cover').attr('src') || '';
+    }
+
     if (coverUrl.startsWith('//')) {
-      coverUrl = `https:${coverUrl}`
+      coverUrl = `https:${coverUrl}`;
     } else if (coverUrl && !coverUrl.startsWith('http')) {
-      coverUrl = `https://libro.fm${coverUrl}`
+      coverUrl = `https://libro.fm${coverUrl}`;
     }
-    return coverUrl || null
+    
+    return coverUrl || null;
   }
 
   private extractSeriesMetadata($: cheerio.CheerioAPI): SeriesMetadata[] | null {
