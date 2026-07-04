@@ -25,7 +25,6 @@ export default class LibroFMProvider extends BaseProvider {
     params: ParsedParameters,
     options?: { skipCache?: boolean }
   ): Promise<BookMetadata[]> {
-    const results: BookMetadata[] = []
 
     const limit = (params['limit'] as number) || 10
     const searchby = (params['searchby'] as string) || 'all'
@@ -34,14 +33,25 @@ export default class LibroFMProvider extends BaseProvider {
     const bookIds = await this.fetchBookIds(title, author, limit, searchby, language)
     console.log(`Fetched ${bookIds.length} book IDs from Libro.fm search results.`)
 
-    for (const bookId of bookIds) {
-      const bookMetadata = await this.getBookById(bookId)
-      if (bookMetadata) {
-        results.push(bookMetadata)
-      }
-    }
+    const batchSize = 5
+    const allResults: BookMetadata[] = []
 
-    return results
+    for (let i = 0; i < bookIds.length; i += batchSize) {
+      const batch = bookIds.slice(i, i + batchSize)
+      const batchMetadata = await Promise.all(
+        batch.map(async (bookId) => {
+          try {
+            const bookMetadata = await this.getBookById(bookId)
+            return bookMetadata
+          } catch (error) {
+            console.error(`Failed to fetch book ${bookId}:`, error)
+            return null
+          }
+        })
+      )
+      allResults.push(...batchMetadata.filter((m): m is BookMetadata => m !== null))
+    }
+    return allResults
   }
 
   async getBookById(bookId: string): Promise<BookMetadata | null> {
