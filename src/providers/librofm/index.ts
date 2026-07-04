@@ -272,7 +272,11 @@ export default class LibroFMProvider extends BaseProvider {
     (language should only be included if it's not 'all')
     */
     this.validateParameters(title, author, limit, searchby, language)
+    console.log(
+      `Searching for books with title: "${title}", author: "${author}", limit: ${limit}, searchby: "${searchby}", language: "${language}"`
+    )
     const searchUrl = this.getSearchURL(title, author, searchby, language)
+    console.log(`Fetching book IDs from search URL: ${searchUrl}`)
     const searchRes = await httpClient.get(searchUrl, { headers: this.getHeaders() })
     if (searchRes.status === 404) {
       return []
@@ -283,11 +287,13 @@ export default class LibroFMProvider extends BaseProvider {
     }
 
     const $ = cheerio.load(searchRes.data)
-    const bookIds: string[] = []
+    const books: { title: string; author: string; id: string }[] = []
 
     for (const gridItem of $('.book-grid-item:not(.book-grid-item__promo)').toArray()) {
       // FIXME: should books not yet released be disregarded?
       const bookLink = $(gridItem).find('.book[href*="/audiobooks/"]').first()
+      const bookTitle = bookLink.find('.book-info .title').text().trim()
+      const bookAuthor = bookLink.find('.book-info .author').text().trim()
 
       if (bookLink.length > 0) {
         const href = bookLink.attr('href') || ''
@@ -295,20 +301,81 @@ export default class LibroFMProvider extends BaseProvider {
         const match = href.match(/\/audiobooks\/([^-]+)/)
 
         if (match?.[1]) {
-          bookIds.push(match[1])
+          books.push({
+            title: bookTitle,
+            author: bookAuthor,
+            id: match[1]
+          })
 
-          if (bookIds.length >= limit) {
+          if (searchby === 'all' && books.length >= limit) {
+            // if searchby is 'all', we can stop at limit, since both author and title results are mixed together. If searchby is 'authors' or 'titles', we need to rank the results by by the value not searched for and return the top `limit` results.
             break
           }
         }
       }
     }
-    return bookIds
+    return this.getRankedBookIds(books, title, author, searchby).slice(0, limit)
+  }
+
+  private getRankedBookIds(
+    books: { title: string; author: string; id: string }[],
+    title: string,
+    author: string | null,
+    searchby: string
+  ): string[] {
+    // books are currently sorted by relevance to searchby, but we want to also account for the other field.
+    if (searchby === 'authors' || searchby === 'titles') {
+      books.sort((a, b) => this.getBookSimilarity(b, title, author) - this.getBookSimilarity(a, title, author))
+    }
+    return books.map((book) => book.id)
+  }
+
+  private getBookSimilarity(book: { title: string; author: string }, title: string, author: string | null): number {
+    const titleScore = this.getStringSimilarity(book.title, title)
+    const authorScore = author ? this.getStringSimilarity(book.author, author) : 0
+    return titleScore + authorScore
+  }
+
+  private getStringSimilarity(str1: string, str2: string): number {
+    let score = 0
+    const str1Lower = str1.toLowerCase().trim()
+    const str2Lower = str2.toLowerCase().trim()
+    if (str1Lower === str2Lower) {
+      return 600
+    }
+    const str2Words = str2Lower.split(/\s+/).filter((term) => term.length > 0)
+    // score words contained in str1, with bonus for exact matches and for words appearing early in str1
+    for (const word of str2Words) {
+      const exactRegex = new RegExp(`\\b${this.escapeRegExp(word)}\\b`, 'i')
+      if (exactRegex.test(str1Lower)) {
+        score += 5 + (str1Lower.indexOf(word) < 5 ? 1 : 0)
+      } else if (str1Lower.includes(word)) {
+        score += 3
+      }
+    }
+    // score for words appearing in the same order in str1 and str2
+    for (let i = 0; i < str2Words.length - 1; i++) {
+      const regex = new RegExp(`${str2Words[i]}[^a-z]+${str2Words[i + 1]}`, 'i')
+      if (regex.test(str1Lower)) {
+        score += 2
+      }
+    }
+    return score
+  }
+
+  private escapeRegExp(string: string): string {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   }
 
   private getSearchURL(title: string, author: string | null, searchby: string, language: string): string {
+    let searchString = `${title}${author ? ` ${author}` : ''}`
+    if (author && searchby === 'authors') {
+      searchString = author
+    } else if (searchby === 'titles') {
+      searchString = title
+    }
     const searchParams = new URLSearchParams({
-      q: `${title}${author ? `+${author}` : ''}`
+      q: searchString
     })
     if (searchby !== 'all') {
       searchParams.append('searchby', searchby)
@@ -350,7 +417,7 @@ export default class LibroFMProvider extends BaseProvider {
       throw new Error(`Invalid searchby value: ${searchby}. Valid options: ${searchbyDef.validation.values.join(', ')}`)
     }
 
-    if (searchby === 'author' && (!author || author.trim() === '')) {
+    if (searchby === 'authors' && (!author || author.trim() === '')) {
       throw new Error('Author is required when searchby is "author"')
     }
   }
