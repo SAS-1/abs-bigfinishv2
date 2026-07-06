@@ -44,11 +44,7 @@ export default class HardcoverProvider extends BaseProvider {
     return this.processResults(books, bookIds, languageFilter)
   }
 
-  private async fetchBookIds(
-    title: string,
-    author: string | null,
-    limit: number
-  ): Promise<number[]> {
+  private async fetchBookIds(title: string, author: string | null, limit: number): Promise<number[]> {
     const searchQuery = author ? `${title} ${author}` : title
 
     const searchResponse = await axios.post<{ data?: HardcoverSearchResponse }>(

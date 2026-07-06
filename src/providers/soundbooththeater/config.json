@@ -17,7 +17,5 @@
     "genres",
     "subtitle"
   ],
-  "comments": [
-    "The implementation of this provider is highly experimental and may not work reliably."
-  ]
+  "comments": ["The implementation of this provider is highly experimental and may not work reliably."]
 }

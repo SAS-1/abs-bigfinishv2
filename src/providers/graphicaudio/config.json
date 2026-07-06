@@ -29,7 +29,5 @@
     "series",
     "publishedYear"
   ],
-  "comments": [
-    "Credits to https://github.com/binyaminyblatt/graphicaudio_scraper"
-  ]
+  "comments": ["Credits to https://github.com/binyaminyblatt/graphicaudio_scraper"]
 }

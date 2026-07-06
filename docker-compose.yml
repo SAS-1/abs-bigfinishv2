@@ -5,7 +5,7 @@ services:
     image: ghcr.io/vito0912/abs-agg:dev
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - '3000:3000'
     environment:
       - NODE_ENV=production
       - HARDCOVER_TOKEN=${HARDCOVER_TOKEN}

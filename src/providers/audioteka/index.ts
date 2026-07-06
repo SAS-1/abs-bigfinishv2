@@ -75,10 +75,7 @@ export default class AudiotekaProvider extends BaseProvider {
     return books
   }
 
-  private async fetchBookDetails(
-    match: AudiotekaSearchMatch,
-    lang: string
-  ): Promise<AudiotekaFullMetadata> {
+  private async fetchBookDetails(match: AudiotekaSearchMatch, lang: string): Promise<AudiotekaFullMetadata> {
     const langConfig = AUDIOTEKA_LANGUAGES[lang]
 
     const response = await httpClient.get(match.url, {

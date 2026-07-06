@@ -25,17 +25,7 @@
       "description": "Search type: 'search' (default) for general search (preferred for single items) or 'programsets' for program set specific search (preferred for podcasts)"
     }
   ],
-  "returnedFields": [
-    "title",
-    "author",
-    "description",
-    "cover",
-    "publisher",
-    "genres",
-    "tags",
-    "series",
-    "language"
-  ],
+  "returnedFields": ["title", "author", "description", "cover", "publisher", "genres", "tags", "series", "language"],
   "comments": [
     "German language only provider.",
     "Credits https://github.com/h43lb1t0/ARD_Audiothek_provider for inital idea in Python"

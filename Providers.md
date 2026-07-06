@@ -1,6 +1,6 @@
 # Metadata Providers
 
-Total Providers: 11
+Total Providers: 12
 
 ## Table of Contents
 
@@ -13,6 +13,7 @@ Total Providers: 11
 - [Graphic Audio](#graphicaudio)
 - [Hardcover](#hardcover)
 - [LibriVox](#librivox)
+- [Libro.fm](#librofm)
 - [Soundbooth Theater](#soundbooththeater)
 - [Storytel](#storytel)
 
@@ -492,6 +493,64 @@ Under "Auth" use `abs`
 ### Comments
 
 - Use ^ prefix in title/author to anchor search to beginning of term
+
+---
+
+## Libro.fm
+
+**ID:** `librofm`
+
+**Description:** Fetches metadata from Libro.fm, a DRM-free audiobook retailer.
+
+**Metadata-URL:** [https://libro.fm](https://libro.fm)
+
+### Parameters
+
+#### Optional Parameters
+
+| Name | Type | Validation | Description |
+|------|------|------------|-------------|
+| `limit` | int | 1-6 | Maximum results to return |
+| `searchby` | enum | [all, titles, authors] | Field to search by (titles or authors). If not specified, defaults to searching by all. |
+| `lang` | enum | [all, cmn, bas, gem, ger, gsw, hai, yue, cpf, afr, alb, amh, ara, arm, asm, aze, baq, bel, ben, bos, bul, cat, chi, cze, dan, dut, eng, est, fin, fre, geo, gle, glg, gre, guj, hat, heb, hin, hrv, hun, ice, ind, ita, jav, jpn, kan, kaz, kir, kor, kur, lat, lav, lit, ltz, lug, mac, mal, mao, mar, may, mlg, mlt, nep, nno, nob, nor, oci, ori, pan, per, pol, por, rum, rus, san, sin, slo, slv, som, spa, srp, swa, swe, tam, tel, tgk, tgl, tha, tur, twi, ukr, urd, uzb, vie, yor, zha, zul] | Language of the audiobook searched for. If not specified, defaults to all (search in all languages). |
+| `ai_narrated` | enum | [true, false] | Whether to include AI-narrated audiobooks. Default is false. |
+
+### Returned Fields
+
+- `title`
+- `subtitle`
+- `author`
+- `narrator`
+- `publisher`
+- `publishedYear`
+- `description`
+- `cover`
+- `isbn`
+- `bookId`
+- `genres`
+- `series`
+- `language`
+- `duration`
+
+### Example Request
+
+```
+GET /librofm/search?title=example&author=author
+```
+
+### Add to Audiobookshelf
+
+```
+https://provider.vito0912.de/librofm
+```
+
+Under "Auth" use `abs`
+
+> The URL can be replaced by your own deployment. The hosted provider can break at any moment.
+
+### Comments
+
+- Uses the unauthenticated and public Libro.fm API
 
 ---
 

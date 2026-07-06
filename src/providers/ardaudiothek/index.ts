@@ -39,10 +39,7 @@ export default class ArdAudiothekProvider extends BaseProvider {
     return this.searchGeneral(title, limit)
   }
 
-  private async searchGeneral(
-    title: string,
-    limit: number
-  ): Promise<BookMetadata[]> {
+  private async searchGeneral(title: string, limit: number): Promise<BookMetadata[]> {
     const searchUrl = `${ARD_API_BASE}/search?query=${encodeURIComponent(title)}&offset=0&limit=${limit}`
 
     const searchRes = await httpClient.get(searchUrl)
@@ -145,10 +142,7 @@ export default class ArdAudiothekProvider extends BaseProvider {
     })
   }
 
-  private async searchProgramSets(
-    title: string,
-    limit: number
-  ): Promise<BookMetadata[]> {
+  private async searchProgramSets(title: string, limit: number): Promise<BookMetadata[]> {
     const searchUrl = `${ARD_API_BASE}/search/programsets?query=${encodeURIComponent(title)}`
 
     const searchRes = await httpClient.get(searchUrl)
