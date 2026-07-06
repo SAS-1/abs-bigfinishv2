@@ -2,18 +2,17 @@ import { BaseProvider } from '../BaseProvider'
 import { SeriesMetadata, BookMetadata, ParsedParameters, ProviderConfig } from '../../types'
 import { normalizeBookMetadata } from '../../utils/helpers'
 import { httpClient } from '../../utils/httpClient'
-import * as cheerio from 'cheerio'
+import { dbManager } from '../../database/manager'
 import fs from 'fs'
 import path from 'path'
-import { JsonLdAudiobook, JsonLdImageObject } from './types'
+import { SearchApiResponse, DetailsApiResponse } from './types'
 
 const configPath = path.join(__dirname, 'config.json')
 const config: ProviderConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
 
 export default class LibroFMProvider extends BaseProvider {
-  private readonly baseUrl: string = 'https://libro.fm'
-  private readonly searchUrl: string = `${this.baseUrl}/search`
-  private readonly bookUrl: string = `${this.baseUrl}/audiobooks`
+  private readonly searchApiUrl = 'https://libro.fm/api/v12/explore/search'
+  private readonly detailsApiUrl = 'https://libro.fm/api/v12/explore/audiobook_details'
 
   constructor() {
     super(config)
@@ -25,73 +24,141 @@ export default class LibroFMProvider extends BaseProvider {
     params: ParsedParameters,
     options?: { skipCache?: boolean }
   ): Promise<BookMetadata[]> {
-
-    const limit = (params['limit'] as number) || 10
+    const limit = (params['limit'] as number) || 3
     const searchby = (params['searchby'] as string) || 'all'
     const language = (params['lang'] as string) || 'all'
+    const aiNarrated = (params['ai_narrated'] as string) || 'false'
 
-    const bookIds = await this.fetchBookIds(title, author, limit, searchby, language)
-    console.log(`Fetched ${bookIds.length} book IDs from Libro.fm search results.`)
+    this.validateParameters(title, author, limit, searchby, language, aiNarrated)
 
-    const batchSize = 5
+    let searchString = `${title}${author ? ` ${author}` : ''}`
+    if (author && searchby === 'authors') {
+      searchString = author
+    } else if (searchby === 'titles') {
+      searchString = title
+    }
+
+    const searchParams = new URLSearchParams({
+      page: '1',
+      q: searchString,
+      searchby: searchby
+    })
+
+    if (language !== 'all') {
+      searchParams.append(`language_${language}`, 'true')
+    }
+
+    if (aiNarrated === 'true') {
+      searchParams.append('ai_narrated', 'true')
+    }
+
+    const searchUrl = `${this.searchApiUrl}?${searchParams.toString()}`
+    console.log(`Fetching Libro.fm search results from: ${searchUrl}`)
+
+    const searchRes = await httpClient.get<SearchApiResponse>(searchUrl, { headers: this.getHeaders() })
+    if (searchRes.status === 404) {
+      return []
+    }
+    if (searchRes.status !== 200) {
+      throw new Error(`Error while searching Libro.fm: ${searchRes.status}`)
+    }
+
+    const searchData = searchRes.data
+    const audiobooks = searchData?.audiobook_collection?.audiobooks || []
+    if (audiobooks.length === 0) {
+      return []
+    }
+
+    const targetAudiobooks = audiobooks.slice(0, limit)
     const allResults: BookMetadata[] = []
 
-    for (let i = 0; i < bookIds.length; i += batchSize) {
-      const batch = bookIds.slice(i, i + batchSize)
-      const batchMetadata = await Promise.all(
-        batch.map(async (bookId) => {
-          try {
-            const bookMetadata = await this.getBookById(bookId)
-            return bookMetadata
-          } catch (error) {
-            console.error(`Failed to fetch book ${bookId}:`, error)
-            return null
-          }
-        })
-      )
-      allResults.push(...batchMetadata.filter((m): m is BookMetadata => m !== null))
+    for (const book of targetAudiobooks) {
+      try {
+        if (!book.isbn) {
+          console.warn(`Audiobook has no ISBN: ${book.title}`)
+          continue
+        }
+        const details = await this.getBookById(String(book.isbn), options)
+        if (details) {
+          allResults.push(details)
+        }
+      } catch (error) {
+        console.error(`Failed to fetch details for ISBN ${book.isbn}:`, error)
+      }
     }
+
     return allResults
   }
 
-  async getBookById(bookId: string): Promise<BookMetadata | null> {
-    const bookUrl = `${this.bookUrl}/${bookId}`
-    const bookRes = await httpClient.get(bookUrl, { headers: this.getHeaders() })
-    if (bookRes.status === 404) return null
-    if (bookRes.status !== 200) {
-      throw new Error(`Error while fetching book from Libro.fm: ${bookRes.status}`)
+  async getBookById(bookId: string, options?: { skipCache?: boolean }): Promise<BookMetadata | null> {
+    const skipCache = options?.skipCache || false
+    if (!skipCache) {
+      const cached = dbManager.getBookCache(this.config.id, bookId)
+      if (cached) {
+        try {
+          return JSON.parse(cached) as BookMetadata
+        } catch (e) {
+          console.error(`Failed to parse cached book ${bookId}:`, e)
+        }
+      }
     }
 
-    const $ = cheerio.load(bookRes.data)
+    const detailsUrl = `${this.detailsApiUrl}/${bookId}`
+    console.log(`Fetching Libro.fm details from: ${detailsUrl}`)
 
-    const ldJsonRaw = $('script[type="application/ld+json"]').first().html() || ''
-    let ld: Partial<JsonLdAudiobook> = {}
-    let useJsonLd = true
-    try {
-      ld = JSON.parse(ldJsonRaw) as JsonLdAudiobook
-    } catch {
-      // JSON-LD malformed or missing — fallback to HTML parsing instead
-      useJsonLd = false
+    const detailsRes = await httpClient.get<DetailsApiResponse>(detailsUrl, { headers: this.getHeaders() })
+    if (detailsRes.status === 404) {
+      return null
+    }
+    if (detailsRes.status !== 200) {
+      throw new Error(`Error while fetching audiobook details from Libro.fm: ${detailsRes.status}`)
     }
 
-    const title = ld.name || $('h1.audiobook-title').text().trim()
-    const subtitle = $('div.audiobook-title__subtitle').text().trim() || undefined
-    const authors = this.extractAuthors($, ld, useJsonLd)
-    const narrators = this.extractNarrators($, ld, useJsonLd)
-    const publisher = ld.publisher || $('span[itemprop="publisher"]').text().trim() || undefined
-    const publishedYear = this.extractPublishedYear($, ld, useJsonLd)
-    const description = this.extractDescription($, ld, useJsonLd)
-    const coverUrl = this.extractCoverUrl($, ld) || undefined
-    const isbn = ld.isbn || $('span[itemprop="isbn"]').text().trim() || undefined
-    const genres = $('div.audiobook-genres a')
-      .toArray()
-      .map((el) => $(el).text().trim())
-      .filter((g) => g.length > 0)
-    const seriesMetadata = this.extractSeriesMetadata($)
-    const language = ld.inLanguage || $('span[itemprop="inLanguage"]').text().trim() || undefined
-    const duration = this.extractDuration($, ld, useJsonLd)
+    const data = detailsRes.data?.data?.audiobook
+    if (!data) {
+      return null
+    }
 
-    return normalizeBookMetadata({
+    const title = data.title || ''
+    const subtitle = data.subtitle || undefined
+    const authors = data.authors || []
+    const narrators = data.audiobook_info?.narrators || []
+    const publisher = data.publisher || undefined
+
+    let publishedYear: string | undefined
+    if (data.publication_date) {
+      const yearMatch = data.publication_date.match(/\d{4}/)
+      if (yearMatch) {
+        publishedYear = yearMatch[0]
+      }
+    }
+
+    const description = data.description || undefined
+    let coverUrl = data.cover_url || undefined
+    if (coverUrl) {
+      if (coverUrl.startsWith('//')) {
+        coverUrl = `https:${coverUrl}`
+      } else if (!coverUrl.startsWith('http')) {
+        coverUrl = `https://libro.fm${coverUrl}`
+      }
+    }
+
+    const isbn = data.isbn ? String(data.isbn) : undefined
+    const genres = data.genres?.map((g) => g.name).filter(Boolean) || []
+
+    const seriesMetadata: SeriesMetadata[] = []
+    if (data.series) {
+      seriesMetadata.push({
+        series: data.series,
+        sequence: data.series_num !== null ? String(data.series_num) : undefined
+      })
+    }
+
+    const language = data.audiobook_info?.audio_language_display || data.audiobook_info?.audio_language || undefined
+    const durationSeconds = data.audiobook_info?.duration
+    const duration = durationSeconds ? Math.round(durationSeconds / 60) : undefined
+
+    const metadata = normalizeBookMetadata({
       title,
       subtitle,
       author: authors.join(', ') || undefined,
@@ -101,301 +168,15 @@ export default class LibroFMProvider extends BaseProvider {
       description,
       cover: coverUrl || undefined,
       isbn,
-      bookId,
       genres: genres.length > 0 ? genres : undefined,
-      series: seriesMetadata,
+      series: seriesMetadata.length > 0 ? seriesMetadata : undefined,
       language,
       duration,
       poweredBy: 'Libro.fm'
     })
-  }
-
-  private extractDescription(
-    $: cheerio.CheerioAPI,
-    ld: Partial<JsonLdAudiobook>,
-    useJsonLd?: boolean
-  ): string | undefined {
-    let description: string | undefined
-    if (useJsonLd && ld.description) {
-      description = ld.description.trim()
-    }
-    if (!description) {
-      // Fallback: clone the summary panel, remove genres, extract text
-      description =
-        $('div.tabs-panel#panel_summary')
-          .clone()
-          .find('div.audiobook-genres')
-          .remove()
-          .end()
-          .children('p')
-          .first()
-          .html() || undefined
-    }
-    return description
-  }
-
-  private extractAuthors($: cheerio.CheerioAPI, ld: Partial<JsonLdAudiobook>, useJsonLd?: boolean): string[] {
-    let authors: string[] = []
-    if (useJsonLd && ld.author) {
-      if (Array.isArray(ld.author)) {
-        authors = ld.author
-          .map((a) => (typeof a === 'string' ? a : a?.name))
-          .filter((name): name is string => typeof name === 'string' && name.length > 0)
-      } else if (typeof ld.author === 'string') {
-        authors = [ld.author]
-      } else if (ld.author?.name) {
-        authors = [ld.author.name]
-      }
-    }
-    if (authors.length === 0) {
-      authors = $('span[itemprop="author"] a')
-        .toArray()
-        .map((el) => $(el).text().trim())
-        .filter(Boolean)
-    }
-    return authors
-  }
-
-  private extractNarrators($: cheerio.CheerioAPI, ld: Partial<JsonLdAudiobook>, useJsonLd?: boolean): string[] {
-    let narrators: string[] = []
-    if (useJsonLd && ld.readBy) {
-      if (Array.isArray(ld.readBy)) {
-        narrators = ld.readBy
-          .map((n) => (typeof n === 'string' ? n : n?.name))
-          .filter((name): name is string => typeof name === 'string' && name.length > 0)
-      } else if (typeof ld.readBy === 'string') {
-        narrators = [ld.readBy]
-      } else if (ld.readBy?.name) {
-        narrators = [ld.readBy.name]
-      }
-    }
-    if (narrators.length === 0) {
-      narrators = $('p:contains("Narrators") span a')
-        .toArray()
-        .map((el) => $(el).text().trim())
-        .filter(Boolean)
-      if (narrators.length === 0) {
-        // Broader fallback: links after the "Narrators" strong tag
-        narrators = $('div.audiobook-information__additional a[href*="searchby=narrators"]')
-          .toArray()
-          .map((el) => $(el).text().trim())
-          .filter(Boolean)
-      }
-    }
-    return narrators
-  }
-
-  private extractDuration(
-    $: cheerio.CheerioAPI,
-    ld: Partial<JsonLdAudiobook>,
-    useJsonLd?: boolean
-  ): number | undefined {
-    let duration: number | undefined
-    if (useJsonLd && ld.duration) {
-      // Parse "PT12H27M40S" format
-      const isoMatch = ld.duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/)
-      if (isoMatch) {
-        const h = parseInt(isoMatch[1] || '0', 10)
-        const m = parseInt(isoMatch[2] || '0', 10)
-        duration = h * 60 + m
-      }
-    }
-    if (duration === undefined) {
-      // Fallback: parse text like "12 hours 27 minutes"
-      const lengthText = $('strong:contains("Length")').parent().text()
-      const lengthMatch = lengthText.match(/(\d+)\s*hours?\s*(\d+)?\s*minutes?/)
-      if (lengthMatch) {
-        duration = parseInt(lengthMatch[1], 10) * 60 + parseInt(lengthMatch[2] || '0', 10)
-      }
-    }
-    return duration
-  }
-
-  private extractPublishedYear(
-    $: cheerio.CheerioAPI,
-    ld: Partial<JsonLdAudiobook>,
-    useJsonLd?: boolean
-  ): string | undefined {
-    let publishedYear: string | undefined
-    if (useJsonLd && ld.datePublished) {
-      publishedYear = ld.datePublished.match(/\d{4}/)?.[0] || ld.datePublished
-    }
-    if (!publishedYear) {
-      const dateRaw = $('span[itemprop="datePublished"]').text().trim()
-      publishedYear = dateRaw.match(/\d{4}/)?.[0] || dateRaw || undefined
-    }
-    return publishedYear
-  }
-
-  private extractCoverUrl($: cheerio.CheerioAPI, ld: Partial<JsonLdAudiobook>, useJsonLd?: boolean): string | null {
-    let coverUrl: string | undefined
-
-    if (useJsonLd && ld.image) {
-      if (typeof ld.image === 'string') {
-        coverUrl = ld.image
-      } else if ('contentUrl' in ld.image) {
-        coverUrl = (ld.image as JsonLdImageObject).contentUrl
-      }
-    }
-
-    if (!coverUrl) {
-      coverUrl = $('img.book-cover').attr('src') || ''
-    }
-
-    if (coverUrl.startsWith('//')) {
-      coverUrl = `https:${coverUrl}`
-    } else if (coverUrl && !coverUrl.startsWith('http')) {
-      coverUrl = `https://libro.fm${coverUrl}`
-    }
-
-    return coverUrl || null
-  }
-
-  private extractSeriesMetadata($: cheerio.CheerioAPI): SeriesMetadata[] | null {
-    const seriesMetadata: SeriesMetadata[] = []
-    const seriesText = $('div.audiobook-title__series').text().trim()
-
-    // Example: "S.F. MASTERWORKS: Book #248", "Series Name #5", "Series: Book 3"
-    const seriesMatch = seriesText.match(/^(.+?)(?::\s*)?(?:Book\s*)?#?\s*(\d+)/i)
-
-    if (seriesMatch) {
-      seriesMetadata.push({
-        series: seriesMatch[1].trim(),
-        sequence: seriesMatch[2]?.toString() || undefined
-      })
-    }
-
-    return seriesMetadata.length > 0 ? seriesMetadata : null
-  }
-
-  private async fetchBookIds(
-    title: string,
-    author: string | null,
-    limit: number,
-    searchby: string,
-    language: string
-  ): Promise<string[]> {
-    /*
-    fetch first `limit` book ids from the public search page. 
-    the links look like this: https://libro.fm/audiobooks/<book-id>-<book-title>
-    search page: https://libro.fm/search?q=<search-query>&searchby=<searchby>&language_<language>=true
-    (language should only be included if it's not 'all')
-    */
-    this.validateParameters(title, author, limit, searchby, language)
-    console.log(
-      `Searching for books with title: "${title}", author: "${author}", limit: ${limit}, searchby: "${searchby}", language: "${language}"`
-    )
-    const searchUrl = this.getSearchURL(title, author, searchby, language)
-    console.log(`Fetching book IDs from search URL: ${searchUrl}`)
-    const searchRes = await httpClient.get(searchUrl, { headers: this.getHeaders() })
-    if (searchRes.status === 404) {
-      return []
-    }
-
-    if (searchRes.status !== 200) {
-      throw new Error(`Error while searching Libro.fm: ${searchRes.status}`)
-    }
-
-    const $ = cheerio.load(searchRes.data)
-    const books: { title: string; author: string; id: string }[] = []
-
-    for (const gridItem of $('.book-grid-item:not(.book-grid-item__promo)').toArray()) {
-      // FIXME: should books not yet released be disregarded?
-      const bookLink = $(gridItem).find('.book[href*="/audiobooks/"]').first()
-      const bookTitle = bookLink.find('.book-info .title').text().trim()
-      const bookAuthor = bookLink.find('.book-info .author').text().trim()
-
-      if (bookLink.length > 0) {
-        const href = bookLink.attr('href') || ''
-        // audiobook URL scheme: /audiobooks/<book-id>-<title>
-        const match = href.match(/\/audiobooks\/([^-]+)/)
-
-        if (match?.[1]) {
-          books.push({
-            title: bookTitle,
-            author: bookAuthor,
-            id: match[1]
-          })
-
-          if (searchby === 'all' && books.length >= limit) {
-            // if searchby is 'all', we can stop at limit, since both author and title results are mixed together. If searchby is 'authors' or 'titles', we need to rank the results by by the value not searched for and return the top `limit` results.
-            break
-          }
-        }
-      }
-    }
-    return this.getRankedBookIds(books, title, author, searchby).slice(0, limit)
-  }
-
-  private getRankedBookIds(
-    books: { title: string; author: string; id: string }[],
-    title: string,
-    author: string | null,
-    searchby: string
-  ): string[] {
-    // books are currently sorted by relevance to searchby, but we want to also account for the other field.
-    if (searchby === 'authors' || searchby === 'titles') {
-      books.sort((a, b) => this.getBookSimilarity(b, title, author) - this.getBookSimilarity(a, title, author))
-    }
-    return books.map((book) => book.id)
-  }
-
-  private getBookSimilarity(book: { title: string; author: string }, title: string, author: string | null): number {
-    const titleScore = this.getStringSimilarity(book.title, title)
-    const authorScore = author ? this.getStringSimilarity(book.author, author) : 0
-    return titleScore + authorScore
-  }
-
-  private getStringSimilarity(str1: string, str2: string): number {
-    let score = 0
-    const str1Lower = str1.toLowerCase().trim()
-    const str2Lower = str2.toLowerCase().trim()
-    if (str1Lower === str2Lower) {
-      return 600
-    }
-    const str2Words = str2Lower.split(/\s+/).filter((term) => term.length > 0)
-    // score words contained in str1, with bonus for exact matches and for words appearing early in str1
-    for (const word of str2Words) {
-      const exactRegex = new RegExp(`\\b${this.escapeRegExp(word)}\\b`, 'i')
-      if (exactRegex.test(str1Lower)) {
-        score += 5 + (str1Lower.indexOf(word) < 5 ? 1 : 0)
-      } else if (str1Lower.includes(word)) {
-        score += 3
-      }
-    }
-    // score for words appearing in the same order in str1 and str2
-    for (let i = 0; i < str2Words.length - 1; i++) {
-      const regex = new RegExp(`${str2Words[i]}[^a-z]+${str2Words[i + 1]}`, 'i')
-      if (regex.test(str1Lower)) {
-        score += 2
-      }
-    }
-    return score
-  }
-
-  private escapeRegExp(string: string): string {
-    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  }
-
-  private getSearchURL(title: string, author: string | null, searchby: string, language: string): string {
-    let searchString = `${title}${author ? ` ${author}` : ''}`
-    if (author && searchby === 'authors') {
-      searchString = author
-    } else if (searchby === 'titles') {
-      searchString = title
-    }
-    const searchParams = new URLSearchParams({
-      q: searchString
-    })
-    if (searchby !== 'all') {
-      searchParams.append('searchby', searchby)
-    }
-    if (language !== 'all') {
-      searchParams.append(`language_${language}`, 'true')
-    }
-    const searchUrl = `${this.searchUrl}?${searchParams.toString()}`
-    console.log(`Constructed search URL: ${searchUrl}`)
-    return searchUrl
+    metadata.bookId = bookId
+    dbManager.setBookCache(this.config.id, bookId, JSON.stringify(metadata))
+    return metadata
   }
 
   private validateParameters(
@@ -403,7 +184,8 @@ export default class LibroFMProvider extends BaseProvider {
     author: string | null,
     limit: number,
     searchby: string,
-    language: string
+    language: string,
+    aiNarrated: string
   ): void {
     if (title.trim() === '') {
       throw new Error('Title is required')
@@ -430,6 +212,17 @@ export default class LibroFMProvider extends BaseProvider {
     if (searchby === 'authors' && (!author || author.trim() === '')) {
       throw new Error('Author is required when searchby is "author"')
     }
+
+    const aiNarratedDef = this.getConfigParam('ai_narrated')
+    if (
+      aiNarrated !== 'false' &&
+      aiNarratedDef?.validation.values &&
+      !aiNarratedDef.validation.values.includes(aiNarrated)
+    ) {
+      throw new Error(
+        `Invalid ai_narrated value: ${aiNarrated}. Valid options: ${aiNarratedDef.validation.values.join(', ')}`
+      )
+    }
   }
 
   private getConfigParam(paramName: string) {
@@ -439,10 +232,10 @@ export default class LibroFMProvider extends BaseProvider {
 
   private getHeaders(): Record<string, string> {
     return {
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      Accept: 'text/html',
-      'Accept-Language': 'en-US,en;q=0.9'
+      'Accept-Encoding': 'gzip',
+      Host: 'libro.fm',
+      'User-Agent': 'okhttp/4.12.0',
+      'X-LibroFm-AppVer': '7.37.4'
     }
   }
 }

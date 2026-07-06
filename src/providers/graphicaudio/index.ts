@@ -12,7 +12,7 @@ const CACHE_DIR = path.join(process.cwd(), 'data')
 const CACHE_FILE = path.join(CACHE_DIR, 'graphicaudio_catalog.json')
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000
 
-const CATALOG_URLS = [ 
+const CATALOG_URLS = [
   'https://github.com/binyaminyblatt/graphicaudio_scraper/raw/refs/heads/main/results.json',
   'https://raw.githubusercontent.com/binyaminyblatt/graphicaudio_scraper/refs/heads/main/wayback_results.json'
 ]
@@ -67,11 +67,9 @@ export default class GraphicAudioProvider extends BaseProvider {
     }
 
     if (needsDownload) {
-      
       this.catalog = []
 
       for (const url of CATALOG_URLS) {
-      
         const response = await httpClient.get(url, {
           headers: { Accept: 'application/json' },
           responseType: 'text'
@@ -89,7 +87,6 @@ export default class GraphicAudioProvider extends BaseProvider {
 
         const rawData = typeof response.data === 'string' ? response.data : JSON.stringify(response.data)
         this.catalog.push(...this.parseAndValidateCatalog(rawData))
-      
       }
 
       fs.writeFileSync(CACHE_FILE, JSON.stringify(this.catalog), 'utf-8')

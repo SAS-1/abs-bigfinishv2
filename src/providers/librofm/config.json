@@ -11,7 +11,7 @@
       "validation": {
         "type": "int",
         "min": 1,
-        "max": 20
+        "max": 6
       },
       "description": "Maximum results to return"
     },
@@ -130,8 +130,32 @@
         ]
       },
       "description": "Language of the audiobook searched for. If not specified, defaults to all (search in all languages)."
+    },
+    {
+      "name": "ai_narrated",
+      "required": false,
+      "validation": {
+        "type": "enum",
+        "values": ["true", "false"]
+      },
+      "description": "Whether to include AI-narrated audiobooks. Default is false."
     }
   ],
-  "returnedFields": ["title", "subtitle", "author", "narrator", "publisher", "publishedYear", "description", "cover", "isbn", "bookId", "genres", "series", "language", "duration", "poweredBy"],
-  "comments": ["Optional notes about the provider"]
+  "returnedFields": [
+    "title",
+    "subtitle",
+    "author",
+    "narrator",
+    "publisher",
+    "publishedYear",
+    "description",
+    "cover",
+    "isbn",
+    "bookId",
+    "genres",
+    "series",
+    "language",
+    "duration"
+  ],
+  "comments": ["Uses the unauthenticated and public Libro.fm API"]
 }

@@ -1,109 +1,81 @@
-export type JsonLdContext = string | string[] | Record<string, unknown>
-
-export interface JsonLdThing {
-  '@context'?: JsonLdContext
-  '@type'?: string | string[]
-  '@id'?: string
-  description?: string
-  image?: string | JsonLdImageObject
-  name?: string
-  sameAs?: string | string[]
-  url?: string
+export interface AudiobookSearchItem {
+  title: string
+  isbn: number
+  authors: string[]
+  cover_url: string
+  catalog_info: {
+    bookseller_pick: boolean
+    new_release: boolean
+    coming_soon: boolean
+  }
+  audiobook_info: {
+    narrators: string[]
+  }
 }
 
-export interface JsonLdPerson extends JsonLdThing {
-  '@type'?: 'Person'
-  givenName?: string
-  familyName?: string
+export interface SearchApiResponse {
+  user_info: {
+    signed_in: boolean
+  }
+  audiobook_collection: {
+    audiobooks: AudiobookSearchItem[]
+  }
 }
 
-export interface JsonLdOrganization extends JsonLdThing {
-  '@type'?: 'Organization'
+export interface Genre {
+  id: number
+  name: string
+  html_name: string
 }
 
-export type JsonLdAuthor = JsonLdPerson | JsonLdOrganization
-
-export interface JsonLdPropertyValue extends JsonLdThing {
-  '@type'?: 'PropertyValue'
-  propertyID?: string
-  value?: string | number
+export interface AudiobookDetailsInfo {
+  narrators: string[]
+  version_num: number
+  tracks_updated_at: string
+  duration: number
+  size_bytes: number
+  track_count: number
+  parts_count: number
+  pdf_extras: any[]
+  audio_language: string
+  audio_language_display: string
+  ai_narrated: boolean
 }
 
-export interface JsonLdMediaObject extends JsonLdCreativeWork {
-  '@type'?: 'MediaObject' | string | string[]
-  contentSize?: string
-  contentUrl?: string
-  duration?: string
-  height?: number | string
-  width?: number | string
+export interface AudiobookDetails {
+  id: number
+  title: string
+  isbn: number
+  updated_at: string
+  description: string
+  abridged: boolean
+  series: string | null
+  series_num: string | number | null
+  lead: string | null
+  genres: Genre[]
+  recommendations: any[]
+  audiobook_info: AudiobookDetailsInfo
+  authors: string[]
+  cover_url: string
+  catalog_info: {
+    bookseller_pick: boolean
+    new_release: boolean
+    coming_soon: boolean
+  }
+  subtitle: string | null
+  publisher: string
+  publication_date: string
+  created_at: string
 }
 
-export interface JsonLdAudioObject extends JsonLdMediaObject {
-  '@type'?: 'AudioObject' | string | string[]
-  caption?: string
-  transcript?: string
-}
-
-export interface JsonLdImageObject extends JsonLdMediaObject {
-  '@type'?: 'ImageObject'
-  caption?: string
-}
-
-export interface JsonLdOffer extends JsonLdThing {
-  '@type'?: 'Offer'
-  availability?: string
-  category?: string | JsonLdThing | Array<string | JsonLdThing>
-  eligibleRegion?: string | JsonLdThing | Array<string | JsonLdThing>
-  price?: number | string
-  priceCurrency?: string
-}
-
-export interface JsonLdAggregateRating extends JsonLdRating {
-  '@type'?: 'AggregateRating'
-  itemReviewed?: JsonLdThing
-  ratingCount?: number
-  reviewCount?: number
-}
-
-export interface JsonLdRating extends JsonLdThing {
-  '@type'?: 'Rating' | string | string[]
-  author?: JsonLdAuthor | string
-  bestRating?: number | string
-  ratingExplanation?: string
-  ratingValue?: number | string
-  reviewAspect?: string | JsonLdThing
-  worstRating?: number | string
-}
-
-export interface JsonLdCreativeWork extends JsonLdThing {
-  '@type'?: 'CreativeWork' | string | string[]
-  about?: JsonLdThing | JsonLdThing[] | string
-  abstract?: string
-  author?: JsonLdAuthor | JsonLdAuthor[] | string
-  datePublished?: string
-  genre?: string | string[]
-  hasPart?: JsonLdCreativeWork | JsonLdCreativeWork[]
-  inLanguage?: string
-  isPartOf?: JsonLdCreativeWork | string | Array<JsonLdCreativeWork | string>
-  keywords?: string | string[]
-  offers?: JsonLdOffer | JsonLdOffer[]
-  publisher?: JsonLdOrganization | JsonLdPerson
-  text?: string
-  translator?: JsonLdPerson | JsonLdOrganization | Array<JsonLdPerson | JsonLdOrganization>
-}
-
-export interface JsonLdBook extends JsonLdCreativeWork {
-  '@type'?: 'Book' | string | string[]
-  abridged?: boolean
-  bookEdition?: string
-  bookFormat?: 'AudiobookFormat' | 'EBook' | 'GraphicNovel' | 'Hardcover' | 'Pamphlet' | 'Paperback'
-  illustrator?: JsonLdPerson | JsonLdPerson[] | string
-  isbn?: string | string[]
-  numberOfPages?: number
-}
-
-export interface JsonLdAudiobook extends JsonLdBook, JsonLdAudioObject {
-  '@type'?: 'Audiobook'
-  readBy?: JsonLdPerson | JsonLdPerson[] | string
-  bookFormat?: 'AudiobookFormat'
+export interface DetailsApiResponse {
+  user_info: {
+    signed_in: boolean
+  }
+  data: {
+    audiobook: AudiobookDetails
+    sample_url: string
+    playlists: any[]
+    related_audiobooks: any[]
+  }
 }

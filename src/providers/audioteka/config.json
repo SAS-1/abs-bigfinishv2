@@ -38,7 +38,5 @@
     "language",
     "duration"
   ],
-  "comments": [
-    "Credits https://github.com/lakafior/audioteka-abs for the original implementation."
-  ]
+  "comments": ["Credits https://github.com/lakafior/audioteka-abs for the original implementation."]
 }
