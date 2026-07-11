@@ -1,6 +1,6 @@
 # Metadata Providers
 
-Total Providers: 12
+Total Providers: 13
 
 ## Table of Contents
 
@@ -8,6 +8,7 @@ Total Providers: 12
 - [Audioteka](#audioteka)
 - [Big Finish](#bigfinish)
 - [BookBeat](#bookbeat)
+- [Deezer](#deezer)
 - [Die drei ???](#dreifragezeichen)
 - [Goodreads](#goodreads)
 - [Graphic Audio](#graphicaudio)
@@ -231,6 +232,54 @@ Under "Auth" use `abs`
 
 - Data might be unrelated a bit.
 - There are made up to 4 requests per search, so consider ratelimiting if self-hosted! Please check you local laws regarding web scraping and API usage.
+
+---
+
+## Deezer
+
+**ID:** `deezer`
+
+**Description:** Fetches metadata from Deezer's music catalog.
+
+**Metadata-URL:** [https://www.deezer.com/](https://www.deezer.com/)
+
+### Parameters
+
+#### Optional Parameters
+
+| Name | Type | Validation | Description |
+|------|------|------------|-------------|
+| `limit` | int | 1-10 | Maximum number of results to return (default: 5, max: 10) |
+
+### Returned Fields
+
+- `title`
+- `author`
+- `cover`
+- `publisher`
+- `publishedYear`
+- `genres`
+- `duration`
+
+### Example Request
+
+```
+GET /deezer/search?title=example&author=author
+```
+
+### Add to Audiobookshelf
+
+```
+https://provider.vito0912.de/deezer
+```
+
+Under "Auth" use `abs`
+
+> The URL can be replaced by your own deployment. The hosted provider can break at any moment.
+
+### Comments
+
+- Use the `DEEZER_ACCESS_TOKEN` environment variable to provide a user OAuth token for higher rate limits.
 
 ---
 
