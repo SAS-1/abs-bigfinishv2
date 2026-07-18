@@ -24,7 +24,7 @@ const SEARCH_HEADERS = {
   Connection: 'keep-alive'
 }
 
-const PAGE_HEADERS = {
+const BROWSER_HEADERS = {
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
   Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
@@ -51,7 +51,7 @@ interface BigFinishSearchResponse {
   query: string
 }
 
-export interface ParsedBookData {
+interface ParsedBookData {
   url: string
   title: string | null
   series: string | null
@@ -119,17 +119,17 @@ export default class BigFinishProvider extends BaseProvider {
       let bookData: ParsedBookData | null = null
 
       if (!skipCache) {
-        const cached = dbManager.getBookCache(this.config.id, productUrl)
-        if (cached) {
+        const bookCache = dbManager.getBookCache(this.config.id, productUrl)
+        if (bookCache) {
           try {
-            bookData = JSON.parse(cached)
+            bookData = JSON.parse(bookCache)
           } catch {}
         }
       }
 
       if (!bookData) {
         const pageRes = await httpClient.get(productUrl, {
-          headers: PAGE_HEADERS,
+          headers: BROWSER_HEADERS,
           responseType: 'text'
         })
 
