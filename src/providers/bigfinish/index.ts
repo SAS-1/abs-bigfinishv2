@@ -169,25 +169,19 @@ export default class BigFinishProvider extends BaseProvider {
       coverUrl: null
     }
 
-    // TITLE + SERIES TAG
-    // h1 contains the full product name, e.g.:
-    //   "Doctor Who: The Fourth Doctor Adventures Series 15: Lethal Progress (15B)"
-    //   "Doctor Who: Precious Annihilation"
-    const h1Text = $('h1').first().text().trim()
-    if (h1Text) {
-      const extracted = this.extractTitleParts(h1Text)
+    const fullProductName = $('h1').first().text().trim()
+    if (fullProductName) {
+      const extracted = this.extractTitleParts(fullProductName)
       data.title = extracted.title
       data.series = extracted.series
       data.seriesTag = extracted.seriesTag
     }
 
-    // SERIES (range name) — the range link is more canonical than the series prefix in the h1
     const rangeLink = $('a[href*="/ranges/v/"]').first()
     if (rangeLink.length) {
       data.series = rangeLink.text().trim() || data.series
     }
 
-    // COVER — og:image is the most reliable source
     const ogImage = $('meta[property="og:image"]').attr('content')
     if (ogImage) {
       data.coverUrl = ogImage
@@ -195,14 +189,12 @@ export default class BigFinishProvider extends BaseProvider {
       data.coverUrl = hit.image
     }
 
-    // RELEASE DATE — "Released Month YYYY" pattern in body text
     const bodyText = $('body').text()
     const releasedMatch = bodyText.match(/Released\s+([A-Za-z]+\s+\d{4})/i)
     if (releasedMatch) {
       data.releaseDate = this.parseReleaseDate(releasedMatch[1])
     }
 
-    // DURATION — "Duration: NNN minutes" pattern in body text
     const durationMatch = bodyText.match(/Duration:\s*(\d+)\s*minutes?/i)
     if (durationMatch) {
       data.duration = durationMatch[1]
@@ -210,8 +202,6 @@ export default class BigFinishProvider extends BaseProvider {
       data.duration = hit.duration
     }
 
-    // DESCRIPTION — longer prose paragraphs from the product page are preferred over
-    // the short promotional blurb in the search result
     const mainParas: string[] = []
     $('main p, article p').each((_: number, el: Element) => {
       const text = $(el).text().trim()
@@ -223,10 +213,6 @@ export default class BigFinishProvider extends BaseProvider {
       data.about = hit.description
     }
 
-    // CONTRIBUTORS — match "Written By:" and "Starring:" labels within the
-    // main content, then take only the text on that same line.
-    // Using line-bounded matching avoids greedy overruns into the description
-    // and prevents the "You might also be interested" block from polluting narrator.
     const scopeText = ($('main').text() || $('body').text()).replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n')
 
     const splitNames = (s: string): string[] =>
@@ -254,28 +240,7 @@ export default class BigFinishProvider extends BaseProvider {
     return data
   }
 
-  /**
-   * Extract the series name, series tag, and short title from a full product name.
-   *
-   * The new site uses the pattern: "{Series}: {Title} ({Tag})"
-   * where Tag is optional (e.g. "15B", "4").
-   *
-   * Examples:
-   *   "Doctor Who: The Fourth Doctor Adventures Series 15: Lethal Progress (15B)"
-   *     -> series:    "Doctor Who: The Fourth Doctor Adventures Series 15"
-   *        seriesTag: "15B"
-   *        title:     "Lethal Progress"
-   *
-   *   "Doctor Who: Precious Annihilation"
-   *     -> series:    "Doctor Who"
-   *        seriesTag: null
-   *        title:     "Precious Annihilation"
-   *
-   *   "Torchwood: Miracle Day"
-   *     -> series:    "Torchwood"
-   *        seriesTag: null
-   *        title:     "Miracle Day"
-   */
+
   private extractTitleParts(fullName: string): {
     series: string | null
     seriesTag: string | null
