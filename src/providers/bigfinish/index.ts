@@ -32,7 +32,7 @@ const BROWSER_HEADERS = {
   Connection: 'keep-alive'
 }
 
-interface BigFinishSearchHit {
+interface BigFinishSearchResult {
   id: number
   release_slug: string
   name: string
@@ -44,7 +44,7 @@ interface BigFinishSearchHit {
 }
 
 interface BigFinishSearchResponse {
-  hits: BigFinishSearchHit[]
+  hits: BigFinishSearchResult[]
   estimatedTotalHits: number
   limit: number
   offset: number
@@ -93,7 +93,6 @@ export default class BigFinishProvider extends BaseProvider {
     const limit = Math.min((params.limit as number) || 5, 10)
     const skipCache = options?.skipCache === true
 
-    // Colons in titles confuse the search engine — replace with spaces
     const query = title.replace(/:/g, ' ')
 
     const searchRes = await httpClient.post(
@@ -154,13 +153,7 @@ export default class BigFinishProvider extends BaseProvider {
     return books
   }
 
-  /**
-   * Parse a product page HTML and return a ParsedBookData.
-   * The search hit is passed so that fields present in the search result
-   * (description, duration, cover, contributors) can be used as fallbacks
-   * when not found in the page HTML.
-   */
-  private parseProductPage(url: string, html: string, hit: BigFinishSearchHit): ParsedBookData {
+  private parseProductPage(url: string, html: string, hit: BigFinishSearchResult): ParsedBookData {
     const $ = cheerio.load(html)
 
     const data: ParsedBookData = {
@@ -320,11 +313,14 @@ export default class BigFinishProvider extends BaseProvider {
     const match = text.match(/([a-zA-Z]+)\s+(\d{4})/)
     if (!match) return null
 
-    const monthNum = MONTHS[match[1].toLowerCase()]
+    const monthStr = match[1].toLowerCase()
+    const yearStr = match[2]
+
+    const monthNum = MONTHS[monthStr]
     if (!monthNum) return null
 
     const month = monthNum.toString().padStart(2, '0')
-    return `${match[2]}-${month}-01`
+    return `${yearStr}-${month}-01`
   }
 
   private mapToMetadata(data: ParsedBookData): BookMetadata {
