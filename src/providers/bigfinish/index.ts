@@ -12,9 +12,19 @@ const configPath = path.join(__dirname, 'config.json')
 const config: ProviderConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
 
 const BASE_URL = 'https://www.bigfinish.com'
-const SEARCH_URL = `${BASE_URL}/search_results/suggest`
+const SEARCH_URL = `${BASE_URL}/api/search`
 
-const BROWSER_HEADERS = {
+const SEARCH_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  Accept: '*/*',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Content-Type': 'application/json',
+  Origin: BASE_URL,
+  Connection: 'keep-alive'
+}
+
+const PAGE_HEADERS = {
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
   Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
@@ -22,13 +32,26 @@ const BROWSER_HEADERS = {
   Connection: 'keep-alive'
 }
 
-interface BigFinishSearchResult {
-  id: string
-  name?: string
-  range?: string
+interface BigFinishSearchHit {
+  id: number
+  release_slug: string
+  name: string
+  range_id: number | null
+  description: string | null
+  duration: string | null
+  image: string | null
+  contributors: { name: string }[]
 }
 
-interface ParsedBookData {
+interface BigFinishSearchResponse {
+  hits: BigFinishSearchHit[]
+  estimatedTotalHits: number
+  limit: number
+  offset: number
+  query: string
+}
+
+export interface ParsedBookData {
   url: string
   title: string | null
   series: string | null
@@ -36,7 +59,6 @@ interface ParsedBookData {
   releaseDate: string | null
   about: string | null
   duration: string | null
-  isbn: string | null
   writtenBy: string | null
   narratedBy: string | null
   coverUrl: string | null
@@ -71,52 +93,51 @@ export default class BigFinishProvider extends BaseProvider {
     const limit = Math.min((params.limit as number) || 5, 10)
     const skipCache = options?.skipCache === true
 
+    // Colons in titles confuse the search engine — replace with spaces
     const query = title.replace(/:/g, ' ')
-    const searchUrl = `${SEARCH_URL}/${encodeURIComponent(query)}`
 
-    const searchRes = await httpClient.get(searchUrl, {
-      headers: { ...BROWSER_HEADERS, Accept: 'application/json' }
-    })
+    const searchRes = await httpClient.post(
+      SEARCH_URL,
+      { q: query, limit: limit * 2, offset: 0 },
+      { headers: SEARCH_HEADERS }
+    )
 
     if (searchRes.status !== 200) {
       throw new Error(`Big Finish search API error: ${searchRes.status}`)
     }
 
-    let searchResults: Record<string, BigFinishSearchResult> = {}
-    if (typeof searchRes.data === 'object' && searchRes.data !== null) {
-      searchResults = searchRes.data as Record<string, BigFinishSearchResult>
-    }
+    const searchData = searchRes.data as BigFinishSearchResponse
+    const hits = (searchData.hits ?? []).slice(0, limit)
 
     const books: BookMetadata[] = []
-    const entries = Object.entries(searchResults).slice(0, limit)
 
-    for (const [, result] of entries) {
-      if (!result.id) continue
+    for (const hit of hits) {
+      if (!hit.release_slug) continue
 
-      const productUrl = `${BASE_URL}/releases/v/${result.id}`
+      const productUrl = `${BASE_URL}/releases/v/${hit.release_slug}`
 
       let bookData: ParsedBookData | null = null
 
       if (!skipCache) {
-        const bookCache = dbManager.getBookCache(this.config.id, productUrl)
-        if (bookCache) {
+        const cached = dbManager.getBookCache(this.config.id, productUrl)
+        if (cached) {
           try {
-            bookData = JSON.parse(bookCache)
+            bookData = JSON.parse(cached)
           } catch {}
         }
       }
 
       if (!bookData) {
         const pageRes = await httpClient.get(productUrl, {
-          headers: BROWSER_HEADERS,
+          headers: PAGE_HEADERS,
           responseType: 'text'
         })
 
         if (pageRes.status === 200) {
           const html = typeof pageRes.data === 'string' ? pageRes.data : String(pageRes.data)
-          bookData = this.parseProductPage(productUrl, html)
+          bookData = this.parseProductPage(productUrl, html, hit)
 
-          if (bookData) {
+          if (bookData && !skipCache) {
             dbManager.setBookCache(this.config.id, productUrl, JSON.stringify(bookData))
           }
         }
@@ -133,7 +154,13 @@ export default class BigFinishProvider extends BaseProvider {
     return books
   }
 
-  private parseProductPage(url: string, html: string): ParsedBookData {
+  /**
+   * Parse a product page HTML and return a ParsedBookData.
+   * The search hit is passed so that fields present in the search result
+   * (description, duration, cover, contributors) can be used as fallbacks
+   * when not found in the page HTML.
+   */
+  private parseProductPage(url: string, html: string, hit: BigFinishSearchHit): ParsedBookData {
     const $ = cheerio.load(html)
 
     const data: ParsedBookData = {
@@ -144,131 +171,142 @@ export default class BigFinishProvider extends BaseProvider {
       releaseDate: null,
       about: null,
       duration: null,
-      isbn: null,
       writtenBy: null,
       narratedBy: null,
       coverUrl: null
     }
 
-    const productDesc = $('.product-desc')
-    if (productDesc.length) {
-      const rawTitle = productDesc.find('h3').first().text().trim() || null
-      if (rawTitle) {
-        const cleaned = this.cleanTitle(rawTitle)
-        data.seriesTag = cleaned.prefix
-        data.title = cleaned.rest
-
-        if (data.title) {
-          const cleaned2 = this.cleanTitle(data.title)
-          if (cleaned2.prefix) {
-            data.seriesTag = data.seriesTag ? `${data.seriesTag}.${cleaned2.prefix}` : cleaned2.prefix
-            data.title = cleaned2.rest
-          }
-        }
-      }
-
-      data.series = productDesc.find('h6').first().text().trim() || null
-
-      if (data.series && data.title) {
-        const seriesPattern = new RegExp(`${this.escapeRegex(data.series)}:\\s*`, 'i')
-        data.title = data.title.replace(seriesPattern, '')
-
-        const altSeries = data.series.replace(/ -/g, ':')
-        const altPattern = new RegExp(`${this.escapeRegex(altSeries)}:\\s*`, 'i')
-        data.title = data.title.replace(altPattern, '')
-      }
-
-      const paragraphs = productDesc.find('p')
-      if (paragraphs.length > 0) {
-        const writers = $(paragraphs[0])
-          .find('a')
-          .map((_: number, el: Element) => $(el).text().trim())
-          .get()
-        data.writtenBy = writers.length > 0 ? writers.join(', ') : null
-      }
-      if (paragraphs.length > 1) {
-        const narrators = $(paragraphs[1])
-          .find('a')
-          .map((_: number, el: Element) => $(el).text().trim())
-          .get()
-        data.narratedBy = narrators.length > 0 ? narrators.join(', ') : null
-      }
+    // TITLE + SERIES TAG
+    // h1 contains the full product name, e.g.:
+    //   "Doctor Who: The Fourth Doctor Adventures Series 15: Lethal Progress (15B)"
+    //   "Doctor Who: Precious Annihilation"
+    const h1Text = $('h1').first().text().trim()
+    if (h1Text) {
+      const extracted = this.extractTitleParts(h1Text)
+      data.title = extracted.title
+      data.series = extracted.series
+      data.seriesTag = extracted.seriesTag
     }
 
-    const coverDiv = $('.detail-page-image')
-    if (coverDiv.length) {
-      const coverImg = coverDiv.find('img').first()
-      if (coverImg.length) {
-        let coverSrc = coverImg.attr('src') || null
-        if (coverSrc && !coverSrc.startsWith('http')) {
-          coverSrc = BASE_URL + coverSrc
-        }
-        data.coverUrl = coverSrc
-        if (!data.title) {
-          data.title = coverImg.attr('alt') || null
-        }
-      }
+    // SERIES (range name) — the range link is more canonical than the series prefix in the h1
+    const rangeLink = $('a[href*="/ranges/v/"]').first()
+    if (rangeLink.length) {
+      data.series = rangeLink.text().trim() || data.series
     }
 
-    const releaseDateDiv = $('.release-date')
-    if (releaseDateDiv.length) {
-      const dateText = releaseDateDiv.text().trim()
-      data.releaseDate = this.parseReleaseDate(dateText)
+    // COVER — og:image is the most reliable source
+    const ogImage = $('meta[property="og:image"]').attr('content')
+    if (ogImage) {
+      data.coverUrl = ogImage
+    } else if (hit.image) {
+      data.coverUrl = hit.image
     }
 
-    const tab1 = $('#tab1')
-    if (tab1.length) {
-      data.about = tab1.text().trim() || null
+    // RELEASE DATE — "Released Month YYYY" pattern in body text
+    const bodyText = $('body').text()
+    const releasedMatch = bodyText.match(/Released\s+([A-Za-z]+\s+\d{4})/i)
+    if (releasedMatch) {
+      data.releaseDate = this.parseReleaseDate(releasedMatch[1])
     }
 
-    const tab5 = $('#tab5')
-    if (tab5.length) {
-      const narrators = tab5
-        .find('a')
-        .map((_: number, el: Element) => $(el).text().trim())
-        .get()
-      if (narrators.length > 0) {
-        data.narratedBy = narrators.join(', ')
-      }
+    // DURATION — "Duration: NNN minutes" pattern in body text
+    const durationMatch = bodyText.match(/Duration:\s*(\d+)\s*minutes?/i)
+    if (durationMatch) {
+      data.duration = durationMatch[1]
+    } else if (hit.duration) {
+      data.duration = hit.duration
     }
 
-    const tab6 = $('#tab6')
-    if (tab6.length) {
-      const content = tab6.text()
+    // DESCRIPTION — longer prose paragraphs from the product page are preferred over
+    // the short promotional blurb in the search result
+    const mainParas: string[] = []
+    $('main p, article p').each((_: number, el: Element) => {
+      const text = $(el).text().trim()
+      if (text.length > 80) mainParas.push(text)
+    })
+    if (mainParas.length > 0) {
+      data.about = mainParas.join('\n\n')
+    } else if (hit.description) {
+      data.about = hit.description
+    }
 
-      const durationMatch = content.match(/Duration:\s*(\d+)/)
-      if (durationMatch) {
-        data.duration = durationMatch[1]
-      }
+    // CONTRIBUTORS — match "Written By:" and "Starring:" labels within the
+    // main content, then take only the text on that same line.
+    // Using line-bounded matching avoids greedy overruns into the description
+    // and prevents the "You might also be interested" block from polluting narrator.
+    const scopeText = ($('main').text() || $('body').text()).replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n')
 
-      const digitalIsbnMatch = content.match(/Digital Retail ISBN:\s*([\d-]+)/)
-      if (digitalIsbnMatch) {
-        const isbn = digitalIsbnMatch[1]
-        if (/^\d{3}-\d{1,5}-\d{1,7}-\d{1,7}-\d{1}$/.test(isbn) || /^\d{13}$/.test(isbn.replace(/-/g, ''))) {
-          data.isbn = isbn
-        }
-      }
+    const splitNames = (s: string): string[] =>
+      s
+        .split(',')
+        .map((n) => n.trim())
+        .filter(Boolean)
 
-      if (!data.isbn) {
-        const physicalIsbnMatch = content.match(/Physical Retail ISBN:\s*([\d-]+)/)
-        if (physicalIsbnMatch) {
-          const isbn = physicalIsbnMatch[1]
-          if (/^\d{3}-\d{1,5}-\d{1,7}-\d{1,7}-\d{1}$/.test(isbn) || /^\d{13}$/.test(isbn.replace(/-/g, ''))) {
-            data.isbn = isbn
-          }
-        }
-      }
+    const writtenMatch = scopeText.match(/Written By:\s*([^\n]+)/i)
+    if (writtenMatch) {
+      const names = splitNames(writtenMatch[1])
+      if (names.length) data.writtenBy = names.join(', ')
+    }
+
+    const starringMatch = scopeText.match(/Starring:\s*([^\n]+)/i)
+    if (starringMatch) {
+      const names = splitNames(starringMatch[1])
+      if (names.length) data.narratedBy = names.join(', ')
+    }
+
+    if (!data.narratedBy && hit.contributors?.length > 0) {
+      data.narratedBy = hit.contributors.map((c) => c.name).join(', ')
     }
 
     return data
   }
 
-  private cleanTitle(title: string): { prefix: string | null; rest: string } {
-    const match = title.match(/^([^\s]{1,6})\.\s+(.+)$/)
-    if (match) {
-      return { prefix: match[1], rest: match[2] }
+  /**
+   * Extract the series name, series tag, and short title from a full product name.
+   *
+   * The new site uses the pattern: "{Series}: {Title} ({Tag})"
+   * where Tag is optional (e.g. "15B", "4").
+   *
+   * Examples:
+   *   "Doctor Who: The Fourth Doctor Adventures Series 15: Lethal Progress (15B)"
+   *     -> series:    "Doctor Who: The Fourth Doctor Adventures Series 15"
+   *        seriesTag: "15B"
+   *        title:     "Lethal Progress"
+   *
+   *   "Doctor Who: Precious Annihilation"
+   *     -> series:    "Doctor Who"
+   *        seriesTag: null
+   *        title:     "Precious Annihilation"
+   *
+   *   "Torchwood: Miracle Day"
+   *     -> series:    "Torchwood"
+   *        seriesTag: null
+   *        title:     "Miracle Day"
+   */
+  private extractTitleParts(fullName: string): {
+    series: string | null
+    seriesTag: string | null
+    title: string
+  } {
+    // Strip trailing "(Tag)" e.g. "(15B)" or "(4)"
+    const tagMatch = fullName.match(/\((\d+[A-Z]?)\)\s*$/)
+    const seriesTag = tagMatch ? tagMatch[1] : null
+    const withoutTag = tagMatch ? fullName.slice(0, tagMatch.index).trim() : fullName
+
+    // Split on the LAST colon to separate series from episode title
+    const lastColon = withoutTag.lastIndexOf(':')
+    if (lastColon === -1) {
+      return { series: null, seriesTag, title: withoutTag }
     }
-    return { prefix: null, rest: title }
+
+    const series = withoutTag.slice(0, lastColon).trim()
+    const title = withoutTag.slice(lastColon + 1).trim()
+
+    return {
+      series: series || null,
+      seriesTag,
+      title: title || withoutTag
+    }
   }
 
   private parseReleaseDate(dateText: string): string | null {
@@ -282,31 +320,17 @@ export default class BigFinishProvider extends BaseProvider {
     const match = text.match(/([a-zA-Z]+)\s+(\d{4})/)
     if (!match) return null
 
-    const monthStr = match[1].toLowerCase()
-    const yearStr = match[2]
-
-    const monthNum = MONTHS[monthStr]
+    const monthNum = MONTHS[match[1].toLowerCase()]
     if (!monthNum) return null
 
     const month = monthNum.toString().padStart(2, '0')
-    return `${yearStr}-${month}-01`
-  }
-
-  private escapeRegex(str: string): string {
-    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return `${match[2]}-${month}-01`
   }
 
   private mapToMetadata(data: ParsedBookData): BookMetadata {
     const publishedYear = data.releaseDate ? data.releaseDate.split('-')[0] : undefined
 
-    const series = data.series
-      ? [
-          {
-            series: data.series,
-            sequence: data.seriesTag || undefined
-          }
-        ]
-      : undefined
+    const series = data.series ? [{ series: data.series, sequence: data.seriesTag || undefined }] : undefined
 
     const duration = data.duration ? parseInt(data.duration, 10) : undefined
 
@@ -316,12 +340,11 @@ export default class BigFinishProvider extends BaseProvider {
       narrator: data.narratedBy,
       description: data.about,
       cover: data.coverUrl,
-      isbn: data.isbn,
-      series: series,
+      series,
       language: 'en',
-      publishedYear: publishedYear,
+      publishedYear,
       publisher: 'Big Finish',
-      duration: duration
+      duration
     })
   }
 }
