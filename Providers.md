@@ -144,7 +144,7 @@ Under "Auth" use `abs`
 
 | Name | Type | Validation | Description |
 |------|------|------------|-------------|
-| `limit` | int | 1-10 | Maximum number of results to return (default: 5, max: 10) |
+| `limit` | int | 1-5 | Maximum number of results to return (default: 3, max: 5) |
 
 ### Returned Fields
 
