@@ -5,8 +5,6 @@ import { dbManager } from '../../database/manager'
 import { httpClient } from '../../utils/httpClient'
 import path from 'path'
 import fs from 'fs'
-import * as cheerio from 'cheerio'
-import type { Element } from 'domhandler'
 
 const configPath = path.join(__dirname, 'config.json')
 const config: ProviderConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
@@ -24,12 +22,12 @@ const SEARCH_HEADERS = {
   Connection: 'keep-alive'
 }
 
-const BROWSER_HEADERS = {
+const RSC_HEADERS = {
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+  Accept: '*/*',
   'Accept-Language': 'en-US,en;q=0.9',
-  Connection: 'keep-alive'
+  rsc: '1'
 }
 
 interface BigFinishSearchResult {
@@ -52,6 +50,7 @@ interface BigFinishSearchResponse {
 }
 
 interface ParsedBookData {
+  schemaVersion: 2
   url: string
   title: string | null
   series: string | null
@@ -62,21 +61,24 @@ interface ParsedBookData {
   writtenBy: string | null
   narratedBy: string | null
   coverUrl: string | null
+  isbn: string | null
 }
 
-const MONTHS: Record<string, number> = {
-  january: 1,
-  february: 2,
-  march: 3,
-  april: 4,
-  may: 5,
-  june: 6,
-  july: 7,
-  august: 8,
-  september: 9,
-  october: 10,
-  november: 11,
-  december: 12
+interface NamedContributor {
+  name?: string
+  label?: string
+}
+
+interface BigFinishReleaseData {
+  title?: string
+  range?: string
+  release_number?: string | number
+  release_date?: string
+  image?: string
+  about?: { summary?: string | null }
+  written_by?: NamedContributor[]
+  cast?: NamedContributor[]
+  production_credits?: Record<string, NamedContributor[] | Record<string, unknown> | undefined>
 }
 
 export default class BigFinishProvider extends BaseProvider {
@@ -90,16 +92,12 @@ export default class BigFinishProvider extends BaseProvider {
     params: ParsedParameters,
     options?: { skipCache?: boolean }
   ): Promise<BookMetadata[]> {
-    const limit = Math.min((params.limit as number) || 5, 10)
+    const limit = Math.min((params.limit as number) || 3, 5)
     const skipCache = options?.skipCache === true
 
     const query = title.replace(/:/g, ' ')
 
-    const searchRes = await httpClient.post(
-      SEARCH_URL,
-      { q: query, limit: limit * 2, offset: 0 },
-      { headers: SEARCH_HEADERS }
-    )
+    const searchRes = await httpClient.post(SEARCH_URL, { q: query, limit, offset: 0 }, { headers: SEARCH_HEADERS })
 
     if (searchRes.status !== 200) {
       throw new Error(`Big Finish search API error: ${searchRes.status}`)
@@ -121,20 +119,21 @@ export default class BigFinishProvider extends BaseProvider {
         const bookCache = dbManager.getBookCache(this.config.id, productUrl)
         if (bookCache) {
           try {
-            bookData = JSON.parse(bookCache)
+            const cachedData = JSON.parse(bookCache) as ParsedBookData
+            if (cachedData.schemaVersion === 2) bookData = cachedData
           } catch {}
         }
       }
 
       if (!bookData) {
         const pageRes = await httpClient.get(productUrl, {
-          headers: BROWSER_HEADERS,
+          headers: RSC_HEADERS,
           responseType: 'text'
         })
 
         if (pageRes.status === 200) {
-          const html = typeof pageRes.data === 'string' ? pageRes.data : String(pageRes.data)
-          bookData = this.parseProductPage(productUrl, html, hit)
+          const rsc = typeof pageRes.data === 'string' ? pageRes.data : String(pageRes.data)
+          bookData = this.parseProductPage(productUrl, rsc, hit)
 
           if (bookData && !skipCache) {
             dbManager.setBookCache(this.config.id, productUrl, JSON.stringify(bookData))
@@ -153,93 +152,104 @@ export default class BigFinishProvider extends BaseProvider {
     return books
   }
 
-  private parseProductPage(url: string, html: string, hit: BigFinishSearchResult): ParsedBookData {
-    const $ = cheerio.load(html)
+  private parseProductPage(url: string, rsc: string, hit: BigFinishSearchResult): ParsedBookData | null {
+    const releaseData = this.extractReleaseData(rsc)
+    if (!releaseData) return null
 
-    const data: ParsedBookData = {
+    const titleParts = this.extractTitleParts(releaseData.title || hit.name)
+    const narrators = this.namesFrom(releaseData.cast?.filter((person) => person.label?.toLowerCase() === 'narrator'))
+    const authors = this.namesFrom(releaseData.written_by)
+    const technicalDetails = releaseData.production_credits?.technical_details as Record<string, unknown> | undefined
+    const duration =
+      technicalDetails?.duration_digital_verified_minutes ||
+      technicalDetails?.duration_physical_verified_minutes ||
+      hit.duration
+    const isbn = technicalDetails?.digital_retail_isbn || technicalDetails?.physical_retail_isbn
+
+    return {
+      schemaVersion: 2,
       url,
-      title: null,
-      series: null,
-      seriesTag: null,
-      releaseDate: null,
-      about: null,
-      duration: null,
-      writtenBy: null,
-      narratedBy: null,
-      coverUrl: null
+      title: releaseData.title || hit.name || null,
+      series: releaseData.range || titleParts.series,
+      seriesTag: releaseData.release_number ? String(releaseData.release_number) : titleParts.seriesTag,
+      releaseDate: releaseData.release_date || null,
+      about: this.appendContributors(releaseData.about?.summary || hit.description || null, releaseData),
+      duration: duration ? String(duration) : null,
+      writtenBy: authors.join(', ') || null,
+      narratedBy: narrators.join(', ') || null,
+      coverUrl: releaseData.image || hit.image || null,
+      isbn: typeof isbn === 'string' ? isbn : null
     }
-
-    const fullProductName = $('h1').first().text().trim()
-    if (fullProductName) {
-      const extracted = this.extractTitleParts(fullProductName)
-      data.title = extracted.title
-      data.series = extracted.series
-      data.seriesTag = extracted.seriesTag
-    }
-
-    const rangeLink = $('a[href*="/ranges/v/"]').first()
-    if (rangeLink.length) {
-      data.series = rangeLink.text().trim() || data.series
-    }
-
-    const ogImage = $('meta[property="og:image"]').attr('content')
-    if (ogImage) {
-      data.coverUrl = ogImage
-    } else if (hit.image) {
-      data.coverUrl = hit.image
-    }
-
-    const bodyText = $('body').text()
-    const releasedMatch = bodyText.match(/Released\s+([A-Za-z]+\s+\d{4})/i)
-    if (releasedMatch) {
-      data.releaseDate = this.parseReleaseDate(releasedMatch[1])
-    }
-
-    const durationMatch = bodyText.match(/Duration:\s*(\d+)\s*minutes?/i)
-    if (durationMatch) {
-      data.duration = durationMatch[1]
-    } else if (hit.duration) {
-      data.duration = hit.duration
-    }
-
-    const mainParas: string[] = []
-    $('main p, article p').each((_: number, el: Element) => {
-      const text = $(el).text().trim()
-      if (text.length > 80) mainParas.push(text)
-    })
-    if (mainParas.length > 0) {
-      data.about = mainParas.join('\n\n')
-    } else if (hit.description) {
-      data.about = hit.description
-    }
-
-    const scopeText = ($('main').text() || $('body').text()).replace(/[ \t]+/g, ' ').replace(/\n{2,}/g, '\n')
-
-    const splitNames = (s: string): string[] =>
-      s
-        .split(',')
-        .map((n) => n.trim())
-        .filter(Boolean)
-
-    const writtenMatch = scopeText.match(/Written By:\s*([^\n]+)/i)
-    if (writtenMatch) {
-      const names = splitNames(writtenMatch[1])
-      if (names.length) data.writtenBy = names.join(', ')
-    }
-
-    const starringMatch = scopeText.match(/Starring:\s*([^\n]+)/i)
-    if (starringMatch) {
-      const names = splitNames(starringMatch[1])
-      if (names.length) data.narratedBy = names.join(', ')
-    }
-
-    if (!data.narratedBy && hit.contributors?.length > 0) {
-      data.narratedBy = hit.contributors.map((c) => c.name).join(', ')
-    }
-
-    return data
   }
 
+  private extractReleaseData(rsc: string): BigFinishReleaseData | null {
+    const marker = '{"releaseData":'
+    const start = rsc.indexOf(marker)
+    if (start === -1) return null
+
+    let inString = false
+    let escaped = false
+    let depth = 0
+    for (let index = start; index < rsc.length; index++) {
+      const character = rsc[index]
+      if (inString) {
+        if (escaped) escaped = false
+        else if (character === '\\') escaped = true
+        else if (character === '"') inString = false
+        continue
+      }
+      if (character === '"') inString = true
+      else if (character === '{') depth++
+      else if (character === '}') {
+        depth--
+        if (depth === 0) {
+          try {
+            const payload = JSON.parse(rsc.slice(start, index + 1)) as { releaseData?: BigFinishReleaseData }
+            return payload.releaseData || null
+          } catch {
+            return null
+          }
+        }
+      }
+    }
+    return null
+  }
+
+  private namesFrom(people: NamedContributor[] | undefined): string[] {
+    return [
+      ...new Set((people || []).map((person) => person.name?.trim()).filter((name): name is string => Boolean(name)))
+    ]
+  }
+
+  private appendContributors(description: string | null, releaseData: BigFinishReleaseData): string | null {
+    const entries: string[] = []
+    const add = (role: string, people: NamedContributor[] | undefined) => {
+      const names = this.namesFrom(people)
+      if (names.length)
+        entries.push(`<li><strong>${this.escapeHtml(role)}:</strong> ${names.map(this.escapeHtml).join(', ')}</li>`)
+    }
+
+    for (const person of releaseData.cast || []) {
+      if (person.label?.toLowerCase() !== 'narrator') add(person.label || 'Cast', [person])
+    }
+    for (const [role, people] of Object.entries(releaseData.production_credits || {})) {
+      if (role !== 'writer' && Array.isArray(people)) add(this.formatRole(role), people)
+    }
+
+    if (!entries.length) return description
+    return `${description || ''}<hr/><p><strong>Contributors</strong></p><ul>${entries.join('')}</ul>`
+  }
+
+  private formatRole(role: string): string {
+    return role.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+  }
+
+  private escapeHtml(value: string): string {
+    return value.replace(
+      /[&<>"']/g,
+      (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!
+    )
+  }
 
   private extractTitleParts(fullName: string): {
     series: string | null
@@ -267,27 +277,6 @@ export default class BigFinishProvider extends BaseProvider {
     }
   }
 
-  private parseReleaseDate(dateText: string): string | null {
-    if (!dateText) return null
-
-    let text = dateText.toLowerCase().trim()
-    if (text.startsWith('released ')) {
-      text = text.substring(9).trim()
-    }
-
-    const match = text.match(/([a-zA-Z]+)\s+(\d{4})/)
-    if (!match) return null
-
-    const monthStr = match[1].toLowerCase()
-    const yearStr = match[2]
-
-    const monthNum = MONTHS[monthStr]
-    if (!monthNum) return null
-
-    const month = monthNum.toString().padStart(2, '0')
-    return `${yearStr}-${month}-01`
-  }
-
   private mapToMetadata(data: ParsedBookData): BookMetadata {
     const publishedYear = data.releaseDate ? data.releaseDate.split('-')[0] : undefined
 
@@ -301,6 +290,7 @@ export default class BigFinishProvider extends BaseProvider {
       narrator: data.narratedBy,
       description: data.about,
       cover: data.coverUrl,
+      isbn: data.isbn,
       series,
       language: 'en',
       publishedYear,
