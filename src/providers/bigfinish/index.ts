@@ -50,7 +50,7 @@ interface BigFinishSearchResponse {
 }
 
 interface ParsedBookData {
-  schemaVersion: 2
+  schemaVersion: 3
   url: string
   title: string | null
   series: string | null
@@ -120,7 +120,7 @@ export default class BigFinishProvider extends BaseProvider {
         if (bookCache) {
           try {
             const cachedData = JSON.parse(bookCache) as ParsedBookData
-            if (cachedData.schemaVersion === 2) bookData = cachedData
+            if (cachedData.schemaVersion === 3) bookData = cachedData
           } catch {}
         }
       }
@@ -165,15 +165,16 @@ export default class BigFinishProvider extends BaseProvider {
       technicalDetails?.duration_physical_verified_minutes ||
       hit.duration
     const isbn = technicalDetails?.digital_retail_isbn || technicalDetails?.physical_retail_isbn
+    const description = this.resolveRscText(rsc, releaseData.about?.summary) || hit.description || null
 
     return {
-      schemaVersion: 2,
+      schemaVersion: 3,
       url,
       title: releaseData.title || hit.name || null,
-      series: releaseData.range || titleParts.series,
+      series: this.formatSeries(releaseData.range || titleParts.series),
       seriesTag: releaseData.release_number ? String(releaseData.release_number) : titleParts.seriesTag,
       releaseDate: releaseData.release_date || null,
-      about: this.appendContributors(releaseData.about?.summary || hit.description || null, releaseData),
+      about: this.appendContributors(description, releaseData),
       duration: duration ? String(duration) : null,
       writtenBy: authors.join(', ') || null,
       narratedBy: narrators.join(', ') || null,
@@ -215,6 +216,19 @@ export default class BigFinishProvider extends BaseProvider {
     return null
   }
 
+  private resolveRscText(rsc: string, value: string | null | undefined): string | null {
+    if (!value) return null
+    if (!/^\$[0-9a-z]+$/i.test(value)) return value
+
+    const reference = value.slice(1)
+    const record = new RegExp(`${reference}:T([0-9a-f]+),`, 'i').exec(rsc)
+    if (!record || record.index === undefined) return null
+
+    const length = parseInt(record[1], 16)
+    const start = record.index + record[0].length
+    return rsc.slice(start, start + length)
+  }
+
   private namesFrom(people: NamedContributor[] | undefined): string[] {
     return [
       ...new Set((people || []).map((person) => person.name?.trim()).filter((name): name is string => Boolean(name)))
@@ -242,6 +256,10 @@ export default class BigFinishProvider extends BaseProvider {
 
   private formatRole(role: string): string {
     return role.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+  }
+
+  private formatSeries(series: string | null | undefined): string | null {
+    return series ? series.replace(/\s*:\s*/g, ' - ') : null
   }
 
   private escapeHtml(value: string): string {
