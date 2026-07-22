@@ -45,3 +45,12 @@ Replace the example IP address with the IP address or hostname of your Docker ho
 6) Click Search.
 7) Select the correct result.
 8) Verify the metadata and click Save.
+
+## Environment Variables for Bigfinish
+
+This has 2 new environment variables, disabled by default. 
+
+SERIESMAPPING
+CHARACTERS
+
+If these are set to TRUE then it will pull some extra data in, characters will be added as tags in ABS and the series mapping is set to try and improve the Big Finish series info into a better structure for use in ABS. 

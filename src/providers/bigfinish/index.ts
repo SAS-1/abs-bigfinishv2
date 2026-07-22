@@ -12,6 +12,10 @@ const config: ProviderConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
 const BASE_URL = 'https://www.bigfinish.com'
 const SEARCH_URL = `${BASE_URL}/api/search`
 
+const isEnvEnabled = (value: string | undefined): boolean => value?.trim().toLowerCase() === 'true'
+const ENABLE_SERIES_MAPPING = isEnvEnabled(process.env.seriesmapping)
+const ENABLE_CHARACTERS = isEnvEnabled(process.env.characters)
+
 const SEARCH_HEADERS = {
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -30,102 +34,9 @@ const RSC_HEADERS = {
   rsc: '1'
 }
 
-const SERIES_MAPPING: Record<string, string> = {
-    "Class": "Class (CL)",
-    "Counter-Measures": "Counter Measures (CM)",
-    "Cyberman": "Cyberman (CY)",
-    "Doctor Who - The Monthly Adventures": "D0. Dr Who - Main Range (MR)",
-    "Doctor Who - The First Doctor Adventures": "D1. The First Doctor Adventures (1DA)",
-    "Doctor Who - The Tenth Doctor Adventures": "D10. The Tenth Doctor Adventures (10DA)",
-    "Doctor Who - The Second Doctor Adventures": "D2. The Second Doctor Adventures (2DA)",
-    "Doctor Who - The Third Doctor Adventures": "D3. The Third Doctor Adventures (3DA)",
-    "Doctor Who - The Fourth Doctor Adventures": "D4. The Fourth Doctor Adventures (4DA)",
-    "Doctor Who - The Fifth Doctor Adventures": "D5. The Fifth Doctor Adventures (5DA)",
-    "Doctor Who - The Sixth Doctor Adventures": "D6. The Sixth Doctor Adventures (6DA)",
-    "Doctor Who - The Seventh Doctor Adventures": "D7. The Seventh Doctor Adventures (7DA)",
-    "Doctor Who - The Eighth Doctor Adventures": "D8. The Eighth Doctor Adventures (8DA)",
-    "Doctor Who - The Ninth Doctor Adventures": "D9. The Ninth Doctor Adventures (9DA)",
-    "Doctor Who: The First Doctor Adventures": "D1. The First Doctor Adventures (1DA)",
-    "Doctor Who: The Tenth Doctor Adventures": "D10. The Tenth Doctor Adventures (10DA)",
-    "Doctor Who: The Second Doctor Adventures": "D2. The Second Doctor Adventures (2DA)",
-    "Doctor Who: The Third Doctor Adventures": "D3. The Third Doctor Adventures (3DA)",
-    "Doctor Who: The Fourth Doctor Adventures": "D4. The Fourth Doctor Adventures (4DA)",
-    "Doctor Who: The Fifth Doctor Adventures": "D5. The Fifth Doctor Adventures (5DA)",
-    "Doctor Who: The Sixth Doctor Adventures": "D6. The Sixth Doctor Adventures (6DA)",
-    "Doctor Who: The Seventh Doctor Adventures": "D7. The Seventh Doctor Adventures (7DA)",
-    "Doctor Who: The Eighth Doctor Adventures": "D8. The Eighth Doctor Adventures (8DA)",
-    "Doctor Who: The Ninth Doctor Adventures": "D9. The Ninth Doctor Adventures (9DA)",
-    "Dalek Empire": "Dalek Empire (DE)",
-    "Dark Gallifrey": "Dark Gallifrey (DG)",
-    "Doctor Who - Destiny of the Doctor": "Destiny of the Doctor",
-    "Doom's Day": "Doom's Day (DD)",
-    "Bernice Summerfield": "F1. Bernice Summerfield (BS)",
-    "Bernice Summerfield - Books & Audiobooks": "F2. Bernice Summerfield Audiobooks (BSAB)",
-    "Bernice Summerfield: Books & Audiobooks": "F2. Bernice Summerfield Audiobooks (BSAB)",    
-    "Doctor Who - The New Adventures of Bernice Summerfield": "F3. The New Adventures of Bernice Summerfield (NABS)",
-    "Doctor Who: The New Adventures of Bernice Summerfield": "F3. The New Adventures of Bernice Summerfield (NABS)",    
-    "Gallifrey": "Gallifrey (GAL)",
-    "I, Davros": "I, DAVROS",
-    "Jago & Litefoot": "Jago & Litefoot (J&L)",
-    "Missy": "Missy (MIS)",
-    "Doctor Who - Once and Future": "Once and Future (O&F)",
-    "Doctor Who - Philip Hinchcliffe Presents": "Philip Hincliffe Presents (PHP)",
-    "Doctor Who - Short Trips Rarities": "Rarities & Subcriber Short Trips (SST)",
-    "Doctor Who: Once and Future": "Once and Future (O&F)",
-    "Doctor Who: Philip Hinchcliffe Presents": "Philip Hincliffe Presents (PHP)",
-    "Doctor Who: Short Trips Rarities": "Rarities & Subcriber Short Trips (SST)",    
-    "Rose Tyler": "Rose Tyler The Dimension Cannon (RT)",
-    "Sarah Jane Smith": "Sarah Jane Smith (SJS)",
-    "Doctor Who - Short Trips": "Short Trips (ST)",
-    "The Worlds of Doctor Who - Special Releases": "Special Releases (SP)",
-    "Doctor Who: Short Trips": "Short Trips (ST)",
-    "The Worlds of Doctor Who: Special Releases": "Special Releases (SP)",    
-    "Doctor Who: The Classic Series: Special Releases": "Special Releases (SP)",
-    "Torchwood - Monthly Range": "T0. Torchwood Main Range (TMR)",
-    "Torchwood - Special Releases": "T1. Torchwood - Specials (TWsp)",
-    "Torchwood: Monthly Range": "T0. Torchwood Main Range (TMR)",
-    "Torchwood: Special Releases": "T1. Torchwood - Specials (TWsp)",    
-    "Torchwood One": "T2. Torchwood One (TW1)",
-    "Torchwood - The Story Continues": "T3. Torchwood - The Story Continues",
-    "Torchwood: The Story Continues": "T3. Torchwood - The Story Continues",    
-    "Torchwood Soho": "T4. Torchwood Soho (TWS)",
-    "Doctor Who - The Audio Novels": "The Audio Novels",
-    "Doctor Who - The Companion Chronicles": "The Companion Chronicles (CC)",
-    "Doctor Who: The Audio Novels": "The Audio Novels",
-    "Doctor Who: The Companion Chronicles": "The Companion Chronicles (CC)",    
-    "River Song": "The Diary of River Song (RS)",
-    "Doctor Who - The Doctor Chronicles": "The Doctor Chronicles (TDC)",
-    "Doctor Who - The Early Adventures": "The Early Adventures (EA)",
-    "Doctor Who: The Doctor Chronicles": "The Doctor Chronicles (TDC)",
-    "Doctor Who: The Early Adventures": "The Early Adventures (EA)",
-    "The Lives of Captain Jack": "The Lives of Captain Jack (LCJ)",
-    "Doctor Who - The Lost Stories": "The Lost Stories (LS)",
-    "Doctor Who: The Lost Stories": "The Lost Stories (LS)",
-    "The Paternoster Gang": "The Paternoster Gang (PAT)",
-    "The Robots": "The Robots (ROB)",
-    "Doctor Who - The Stageplays": "The Stageplays (STG)",
-    "Doctor Who - The War Doctor": "The War Doctor (WD)",
-    "Doctor Who: The Stageplays": "The Stageplays (STG)",
-    "Doctor Who: The War Doctor": "The War Doctor (WD)",    
-    "The War Master": "The War Master (WM)",
-    "Doctor Who - Time Lord Victorious": "Time Lord Victorious (TLV)",
-    "Doctor Who: Time Lord Victorious": "Time Lord Victorious (TLV)",    
-    "UNIT": "UNIT (UNIT)",
-    "UNIT - The New Series": "UNIT - The New Series (UNITNS)",
-    "UNIT: The New Series": "UNIT - The New Series (UNITNS)",    
-    "Iris Wildthyme": "F4. Iris Wildthyme (IW)",
-    "Iris Wildthyme and Friends":"F5. Iris Wildthyme & Friends (IWF)",
-    "Graceless": "F6. Graceless",
-    "Doctor Who - Unbound": "Unbound (UN)",
-    "Vienna": "F7. Vienna",
-    "Charlotte Pollard": "F8. Charlotte Pollard",
-    "Doctor Who - The Fugitive Doctor": "The Fugitive Doctor Adventures (FDA)",
-    "Doctor Who: The Fugitive Doctor": "The Fugitive Doctor Adventures (FDA)",    
-    "Call Me Master": "Call Me Master (CMM)",
-    "Susan's War": "Susan's War (SW)",
-    "V UK": "V - UK",
-    "Planet Krynoid": "Planet Krynoid (PG)"
-    }
+import seriesMapping from './series-mapping.json'
+
+const SERIES_MAPPING: Record<string, string> = seriesMapping
 
 interface BigFinishSearchResult {
   id: number
@@ -255,8 +166,9 @@ export default class BigFinishProvider extends BaseProvider {
     if (!releaseData) return null
 
     const titleParts = this.extractTitleParts(releaseData.title || hit.name)
-    const narrators = this.formatNarrators(releaseData.cast)
-    const narratorTags = this.extractNarratorTags(releaseData.cast)
+    const narratorNames = this.namesFrom(releaseData.cast?.filter((person) => person.label?.toLowerCase() === 'narrator'))
+    const narrators = ENABLE_CHARACTERS ? this.formatNarrators(releaseData.cast) : narratorNames
+    const narratorTags = ENABLE_CHARACTERS ? this.extractNarratorTags(releaseData.cast) : []
     const authors = this.namesFrom(releaseData.written_by)
     const technicalDetails = releaseData.production_credits?.technical_details as Record<string, unknown> | undefined
     const duration =
@@ -265,15 +177,16 @@ export default class BigFinishProvider extends BaseProvider {
       hit.duration
     const isbn = technicalDetails?.digital_retail_isbn || technicalDetails?.physical_retail_isbn
     const description = this.resolveRscText(rsc, releaseData.about?.summary) || hit.description || null
+    const about = ENABLE_CHARACTERS ? this.appendContributors(description, releaseData) : description
 
     return {
       schemaVersion: 3,
       url,
       title: releaseData.title || hit.name || null,
-      series: this.formatSeries(releaseData.range || titleParts.series),
+      series: ENABLE_SERIES_MAPPING ? this.formatSeries(releaseData.range || titleParts.series) : releaseData.range || titleParts.series,
       seriesTag: releaseData.release_number ? String(releaseData.release_number) : titleParts.seriesTag,
       releaseDate: releaseData.release_date || null,
-      about: this.appendContributors(description, releaseData),
+      about,
       duration: duration ? String(duration) : null,
       writtenBy: authors.join(', ') || null,
       narratedBy: narrators.join(', ') || null,
