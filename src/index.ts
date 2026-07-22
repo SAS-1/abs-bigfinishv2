@@ -5,7 +5,7 @@ import { providerRegistry } from './providers/ProviderRegistry'
 import { router } from './routes'
 
 const app = express()
-const PORT = process.env.PORT || 3000
+const PORT = process.env.PORT || 7777
 
 app.use(express.json())
 

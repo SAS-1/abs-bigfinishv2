@@ -1,5 +1,5 @@
 {
-  "name": "abs-agg",
+  "name": "abs-bigfinish",
   "version": "0.0.3",
   "description": "Metadata provider framework for Audiobookshelf",
   "main": "dist/index.js",

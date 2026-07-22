@@ -1,18 +1,17 @@
 services:
-  abs-agg:
+  abs-bigfinish:
     build: .
-    container_name: abs-agg
-    image: ghcr.io/vito0912/abs-agg:dev
+    container_name: abs-bigfinish
     restart: unless-stopped
     ports:
-      - '3000:3000'
+      - '7777:7777'
     environment:
       - NODE_ENV=production
       - HARDCOVER_TOKEN=${HARDCOVER_TOKEN}
       # See https://lazylibrarian.gitlab.io/config_importing/
       - GOODREADS_API_KEY=${GOODREADS_API_KEY}
     volumes:
-      - ./data:/app/data
+      - .:/app/data
     # This container runs by default as 1000:1000 user.
     # If you did not create the data folder, yet and run the docker daemon as another user/root, either set the permissions of the data folder accordingly (1000:1000) or adjust the user here.
     # user: 0:0

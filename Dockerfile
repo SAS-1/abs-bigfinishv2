@@ -26,7 +26,7 @@ RUN mkdir -p /app/data && chown -R node:node /app
 
 ENV NODE_ENV=production
 
-EXPOSE 3000
+EXPOSE 7777
 
 USER node
 
