@@ -34,9 +34,22 @@ const RSC_HEADERS = {
   rsc: '1'
 }
 
-import seriesMapping from './series-mapping.json'
+const SERIES_MAPPING_PATH = path.join(
+  process.cwd(),
+  'data',
+  'series-mapping.json'
+)
 
-const SERIES_MAPPING: Record<string, string> = seriesMapping
+function getSeriesMapping(): Record<string, string> {
+  try {
+    return JSON.parse(
+      fs.readFileSync(SERIES_MAPPING_PATH, 'utf8')
+    ) as Record<string, string>
+  } catch (error) {
+    console.error(`Failed to load ${SERIES_MAPPING_PATH}`, error)
+    return {}
+  }
+}
 
 interface BigFinishSearchResult {
   id: number
@@ -314,8 +327,10 @@ export default class BigFinishProvider extends BaseProvider {
 
   private formatSeries(series: string | null | undefined): string | null {
     if (!series) return null
-
-    const mappedSeries = SERIES_MAPPING[series.trim()] ?? series
+  
+    const seriesMapping = getSeriesMapping()
+    const mappedSeries = seriesMapping[series.trim()] ?? series
+  
     return mappedSeries.replace(/\s*:\s*/g, ' - ')
   }
 
