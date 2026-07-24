@@ -1,0 +1,35 @@
+{
+  "id": "dreifragezeichen",
+  "name": "Die drei ???",
+  "available": true,
+  "description": "Fetches metadata for the audiobook series 'Die drei ???'. Metadata is weekly from dreimetadaten.de.",
+  "url": "https://dreifragezeichen.de/",
+  "parameters": [
+    {
+      "name": "limit",
+      "required": false,
+      "validation": {
+        "type": "int",
+        "min": 1,
+        "max": 5
+      },
+      "description": "Maximum number of results to return (default: 5, max: 5)"
+    }
+  ],
+  "returnedFields": [
+    "title",
+    "author",
+    "narrator",
+    "description",
+    "cover",
+    "publishedYear",
+    "series",
+    "duration",
+    "language",
+    "tags"
+  ],
+  "comments": [
+    "Data provided by https://dreimetadaten.de",
+    "Does include the main series, some specials and kids series"
+  ]
+}
