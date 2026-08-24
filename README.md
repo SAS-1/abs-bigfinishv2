@@ -1,8 +1,39 @@
-# abs-bigfinishv2
+# abs-agg
 
-A metadata provider server for [Audiobookshelf](https://github.com/advplyr/audiobookshelf). Forked from [Vito0912/abs-agg](https://github.com/Vito0912/abs-agg)
+A metadata provider server for [Audiobookshelf](https://github.com/advplyr/audiobookshelf). Aggregates audiobook metadata from multiple sources through a unified API.
 
-This version uses series mapping and characters as tags.
+This currently does not mean it connects them between providers. This might be added in the future.
+
+abs-agg named after "aggregate" and the German "AGG", because each provider should be usable as the others.
+
+## Supported metadata providers
+
+- ARD Audiothek
+- Audioteka
+- Big Finish
+- BookBeat
+- Goodreads
+- Graphic Audio
+- Hardcover
+- LibriVox
+- Storytel
+- Die drei ???
+- Soundbooth
+
+For detailed documentation on each provider, see [Providers.md](Providers.md).
+
+This unifies many existing audiobook metadata providers into a single server:
+<details><summary>Other provider attribution</summary>
+
+- https://github.com/ahobsonsayers/abs-tract
+- https://github.com/lakafior/audioteka-abs
+- https://github.com/vito0912/abs-bigfinish
+- https://github.com/Revisor01/abs-storytel-provider
+- https://github.com/Vito0912/hardcover-provider
+- https://github.com/h43lb1t0/ARD_Audiothek_provider
+- https://github.com/binyaminyblatt/graphicaudio_scraper
+
+</details>
 
 ## Quick Start
 
@@ -12,45 +43,63 @@ This version uses series mapping and characters as tags.
 docker run -d \
   -p 3000:3000 \
   -v ./data:/app/data \
-  ghcr.io/SAS-1/abs-bigfinishv2:latest
+  ghcr.io/vito0912/abs-agg:latest
 ```
 
 Or with docker-compose:
 
 See [docker-compose.yml](docker-compose.yml).
 
-## Audiobookshelf Setup
+## API Usage
 
-1) Log in to Audiobookshelf as an Administrator.
-2) Go to Settings.
-3) Select Item Metadata Utils from the menu.
-4) Select Custom Metadata Providers.
-5) Click Add.
+### List available providers
 
-Enter the following details:
+```
+GET /providers
+```
 
-| Field | Value                       |
-| ----- | --------------------------- |
-| Name  | Big Finish                  |
-| URL   | `http://192.168.0.100:7777` |
+### Search for audiobooks
 
+```
+GET /:provider/search?title=<title>&author=<author>
+```
 
-Replace the example IP address with the IP address or hostname of your Docker host.
+**Required parameters:**
 
-1) Click Save.
-2) Go to your library.
-3) Select an audiobook.
-4) Click Edit → Match.
-5) Under Provider, select your new Big Finish metadata source.
-6) Click Search.
-7) Select the correct result.
-8) Verify the metadata and click Save.
+- `title` - Book title to search for
 
-## Environment Variables for Bigfinish
+**Optional parameters:**
 
-This has 2 new environment variables, disabled by default. 
+- `author` - Author name
+- `cache` - Set to `false` to bypass cache
 
-SERIESMAPPING
-CHARACTERS
+**Example:**
 
-If these are set to TRUE then it will pull some extra data in, characters will be added as tags in ABS and the series mapping is set to try and improve the Big Finish series info into a better structure for use in ABS. 
+```bash
+curl "http://localhost:3000/librivox/search?title=sherlock+holmes&author=doyle"
+```
+
+> [!IMPORTANT]
+> Parameters (especially optional ones, as they are not in the examples of the providers) must be in the following format:
+> `<host>/provider/<parameter1>/../<parameter2>/search?title=<title>&author=<author>`\
+> \
+> Example:
+> `http://localhost:3000/librivox/limit:10/search?title=sherlock+holmes&author=doyle`
+>
+> For **ABS**! do not add `/search` at the end. Just use:\
+> `http://localhost:3000/librivox/limit:10
+
+## Configuration
+
+Environment variables:
+
+| Variable              | Required | Description                      |
+| --------------------- | -------- | -------------------------------- |
+| `PORT`                | No       | Server port (default: 3000)      |
+| `HARDCOVER_TOKEN`     | No       | API token for Hardcover provider |
+| `GOODREADS_KEY`       | No       | API key for Goodreads provider   |
+| `DEEZER_ACCESS_TOKEN` | No       | Token for higher rate limits     |
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md)
